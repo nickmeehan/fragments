@@ -5,100 +5,145 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fragments</title>
 <meta name="description" content="Press a hotkey, type or dictate a thought, and it becomes a Markdown note or starts a Claude Code session.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Fragments">
+<meta property="og:description" content="Everything has a beginning. A macOS menu-bar app for catching a thought before it goes.">
+<meta property="og:image" content="https://nickmeehan.github.io/fragments/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500&display=swap">
 <style>
+  /* Round 6 landing (c), K04 gilded hero: tokens from the Fragments design system. */
   :root {
-    color-scheme: light dark;
-    --bg: #ffffff;
-    --fg: #1d1d1f;
-    --muted: #6e6e73;
-    --rule: #e5e5e7;
-    --code: #f4f4f5;
-    --accent: #2f6fed;
-    --accent-fg: #ffffff;
+    --ground: #f4f5f3;   /* washi */
+    --ink: #17181a;      /* sumi */
+    --hint: #6b6e71;     /* usuzumi */
+    --hairline: #dee0df; /* mizu */
+    --shu: #c8372d;
+    --gutter: 201px;
+    --font-brand: "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+    --font-system: system-ui, -apple-system, "SF Pro Text", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #121214;
-      --fg: #ededef;
-      --muted: #9a9aa0;
-      --rule: #2a2a2e;
-      --code: #1c1c1f;
-      --accent: #5b8cff;
-      --accent-fg: #0b1020;
+      --ground: #222325;   /* suzuri */
+      --ink: #f4f5f3;      /* washi */
+      --hint: #9c9fa2;     /* usuzumi-dark */
+      --hairline: #36383a; /* suzuri-hairline */
     }
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-brand);
+    font-weight: 400;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 680px; margin: 0 auto; padding: 72px 16px 64px; }
-  h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 12px; }
-  h2 { font-size: 20px; margin: 48px 0 8px; }
-  p { margin: 0 0 12px; }
-  .pitch { font-size: 20px; color: var(--muted); margin-bottom: 28px; }
-  .button {
-    display: inline-block;
-    background: var(--accent);
-    color: var(--accent-fg);
-    text-decoration: none;
-    font-weight: 600;
-    padding: 12px 22px;
-    border-radius: 10px;
+  .sys { font-family: var(--font-system); }
+  a { color: inherit; }
+
+  /* Hero: the render's 1440 × 900 composition, fixed positions, centred on wider screens. */
+  .hero {
+    position: relative;
+    max-width: 1440px;
+    height: 100vh;
+    height: 100svh;
+    min-height: 720px;
+    margin: 0 auto;
+    overflow: hidden;
   }
-  .button:hover { filter: brightness(1.08); }
-  .small { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
-  .small:empty { display: none; }
-  .shot {
-    display: block;
-    width: 100%;
-    height: auto;
-    margin: 40px 0 0;
-    border: 1px solid var(--rule);
-    border-radius: 12px;
+  .wm { position: absolute; left: var(--gutter); top: 55px; font-size: 21.4px; line-height: 1; letter-spacing: .02em; } /* 15 px cap, cap top at 60 */
+  .stroke { position: absolute; left: 183.4px; top: 274.1px; width: 727.2px; height: auto; display: block; } /* the 742 px stroke box at 176 / 237; the file is its ink box */
+  .copy { position: absolute; left: var(--gutter); top: 604px; }
+  h1 { font-size: 38px; font-weight: 400; line-height: 1.2; letter-spacing: .01em; }
+  .dl { display: inline-flex; align-items: center; margin-top: 36px; font-size: 15px; font-weight: 500; letter-spacing: .05em; color: var(--ink); text-decoration: none; }
+  .dl .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--shu); margin-right: 14px; flex: none; }
+  .dl .u { border-bottom: 1px solid var(--hairline); padding-bottom: 3px; }
+  .dl:hover .u, .dl:focus-visible .u { border-bottom-color: var(--ink); }
+  .dl:focus-visible { outline: 2px solid var(--ink); outline-offset: 6px; }
+  .foot { font-size: 12px; line-height: 1.4; letter-spacing: .08em; color: var(--hint); }
+  .hero .foot { position: absolute; bottom: 34px; }
+  .fl { left: var(--gutter); } .fr { right: 234px; }
+  .foot a { text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 2px; }
+  .foot a:hover, .foot a:focus-visible { border-bottom-color: var(--ink); }
+  #version { margin-top: 18px; font-size: 12px; letter-spacing: .08em; color: var(--hint); }
+  #version:empty { display: none; }
+
+  /* Below the fold: brand body style. */
+  main, footer { max-width: 1440px; margin: 0 auto; padding: 0 var(--gutter); }
+  section { max-width: 680px; padding: 96px 0 0; }
+  main p, main li { font-size: 18px; line-height: 1.5; letter-spacing: .015em; }
+  main p { margin-bottom: 16px; }
+  h2 { font-size: 27px; font-weight: 400; line-height: 1.25; letter-spacing: .01em; margin-bottom: 20px; }
+  .shot { display: block; width: 100%; height: auto; margin-top: 32px; border: 1px solid var(--hairline); border-radius: 14px; }
+  ol { padding-left: 24px; margin-bottom: 16px; }
+  li { margin-bottom: 6px; }
+  code, pre { font: 14px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  pre { padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--hairline); border-radius: 6px; overflow-x: auto; }
+  footer { padding-top: 96px; padding-bottom: 34px; }
+
+  @media (max-width: 999px) {
+    :root { --gutter: 64px; }
+    .stroke { left: 46px; width: min(727.2px, calc(100vw - 92px)); }
+    .fr { right: 64px; }
   }
-  ol { padding-left: 22px; margin: 0 0 12px; }
-  li { margin-bottom: 4px; }
-  code, pre {
-    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    background: var(--code);
-    border-radius: 6px;
+  @media (max-width: 599px) {
+    :root { --gutter: 24px; }
+    .hero { min-height: 640px; }
+    .wm { top: 35px; }
+    .stroke { left: 17.6px; top: 194.1px; width: 354.8px; } /* the 362 px stroke box at 14 / 176, whole on screen */
+    .copy { top: 440px; }
+    h1 { font-size: 27px; line-height: 1.25; }
+    .dl { margin-top: 30px; }
+    .foot { font-size: 11px; }
+    .hero .foot { bottom: 30px; }
+    .hero .fl { bottom: 54px; } .fr { left: 24px; right: auto; }
+    section { padding-top: 72px; }
+    main p, main li { font-size: 17px; }
+    .shot { border-radius: 8px; }
+    footer { padding-top: 72px; }
   }
-  code { padding: 2px 5px; }
-  pre { padding: 12px 14px; overflow-x: auto; margin: 0 0 12px; }
-  pre code { padding: 0; background: none; }
-  a { color: var(--accent); }
-  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--muted); }
 </style>
 </head>
 <body>
+<header class="hero">
+  <p class="wm">Fragments</p>
+  <picture>
+    <source srcset="mark-on-sumi.svg" media="(prefers-color-scheme: dark)">
+    <img class="stroke" src="mark-on-wash.svg" width="980" height="180" alt="The Fragments mark: one brushstroke, 一, its dry-brush tail filled with gold.">
+  </picture>
+  <div class="copy">
+    <h1>Everything has a beginning</h1>
+    <a class="dl" href="https://github.com/nickmeehan/fragments/releases/latest/download/Fragments.zip"><span class="dot"></span><span class="u">Download for macOS</span></a>
+    <p id="version"></p>
+  </div>
+  <p class="foot fl"><a href="https://github.com/nickmeehan/fragments">Source on GitHub</a></p>
+  <p class="foot fr"><span class="sys">⌥</span> Space to begin&ensp;·&ensp;macOS 14 and later</p>
+</header>
 <main>
-  <h1>Fragments</h1>
-  <p class="pitch">Press a hotkey, type or dictate a thought, and it becomes a Markdown note or starts a Claude Code session.</p>
-
-  <a class="button" href="https://github.com/nickmeehan/fragments/releases/latest/download/Fragments.zip">Download for macOS</a>
-  <p class="small">Requires macOS 14 or later. Apple Silicon and Intel.</p>
-  <p class="small" id="version"></p>
-
-  <img class="shot" src="capture.png" width="1360" height="800" alt="The Fragments capture panel: a text field with a captured thought and the chords ⌘↩ keep, ⌘⇧↩ Rex, esc discard.">
-
-  <h2>First launch</h2>
-  <p>macOS will say “Apple could not verify Fragments is free of malware” because the app is not yet notarized.</p>
-  <ol>
-    <li>Open System Settings → Privacy &amp; Security and scroll to the Security section.</li>
-    <li>Click <strong>Open Anyway</strong>.</li>
-    <li>Open Fragments again.</li>
-  </ol>
-  <p>Or, from Terminal:</p>
-  <pre><code>xattr -d com.apple.quarantine /Applications/Fragments.app</code></pre>
-
-  <footer>
-    <a href="https://github.com/nickmeehan/fragments">Source on GitHub</a>
-  </footer>
+  <section>
+    <p>Press a hotkey, type or dictate a thought, and it becomes a Markdown note or starts a Claude Code session.</p>
+    <img class="shot" src="capture.png" width="1360" height="800" alt="The Fragments capture panel: a text field with a captured thought and the chords ⌘↩ keep, ⌘⇧↩ Rex, esc discard.">
+  </section>
+  <section>
+    <h2>First launch</h2>
+    <p>macOS will say “Apple could not verify Fragments is free of malware” because the app is not yet notarized.</p>
+    <ol>
+      <li>Open System Settings → Privacy &amp; Security and scroll to the Security section.</li>
+      <li>Click <strong>Open Anyway</strong>.</li>
+      <li>Open Fragments again.</li>
+    </ol>
+    <p>Or, from Terminal:</p>
+    <pre><code>xattr -d com.apple.quarantine /Applications/Fragments.app</code></pre>
+  </section>
 </main>
+<footer class="foot">
+  <a href="https://github.com/nickmeehan/fragments">Source on GitHub</a>&ensp;·&ensp;Requires macOS 14 or later. Apple Silicon and Intel.
+</footer>
 <script>
   fetch('https://api.github.com/repos/nickmeehan/fragments/releases/latest')
     .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
