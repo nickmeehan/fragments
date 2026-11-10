@@ -46,19 +46,22 @@
   .sys { font-family: var(--font-system); }
   a { color: inherit; }
 
-  /* Hero: the render's 1440 × 900 composition, fixed positions, centred on wider screens. */
+  /* Hero: the render's 1440 × 900 composition, centred on wider screens. The mark and watermark sit at fixed
+     positions; the copy and the foot flow below them, so the foot can never land on the button. The copy's offset
+     scales with the viewport (604 at 900 tall, floor 400 just under the stroke) so the button stays above the
+     fold on short windows. */
   .hero {
     position: relative;
+    display: flex;
+    flex-direction: column;
     max-width: 1440px;
-    height: 100vh;
-    height: 100svh;
-    min-height: 720px;
+    min-height: min(900px, 100svh);
     margin: 0 auto;
+    padding: clamp(400px, 67.2svh, 604px) 0 34px var(--gutter);
     overflow: hidden;
   }
   .wm { position: absolute; left: var(--gutter); top: 55px; font-size: 21.4px; line-height: 1; letter-spacing: .02em; } /* 15 px cap, cap top at 60 */
   .stroke { position: absolute; left: 183.4px; top: 274.1px; width: 727.2px; height: auto; display: block; } /* the 742 px stroke box at 176 / 237; the file is its ink box */
-  .copy { position: absolute; left: var(--gutter); top: 604px; }
   h1 { font-size: 38px; font-weight: 400; line-height: 1.2; letter-spacing: .01em; }
   .dl { display: inline-flex; align-items: center; margin-top: 36px; font-size: 15px; font-weight: 500; letter-spacing: .05em; color: var(--ink); text-decoration: none; }
   .dl .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--shu); margin-right: 14px; flex: none; }
@@ -66,21 +69,20 @@
   .dl:hover .u, .dl:focus-visible .u { border-bottom-color: var(--ink); }
   .dl:focus-visible { outline: 2px solid var(--ink); outline-offset: 6px; }
   .foot { font-size: 12px; line-height: 1.4; letter-spacing: .08em; color: var(--hint); }
-  .hero .foot { position: absolute; bottom: 34px; }
-  .fl { left: var(--gutter); } .fr { right: 234px; }
-  .foot a { text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 2px; }
-  .foot a:hover, .foot a:focus-visible { border-bottom-color: var(--ink); }
+  .hero .foot { margin-top: auto; padding-top: 48px; }
+  .foot a, main a { text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 2px; }
+  .foot a:hover, .foot a:focus-visible, main a:hover, main a:focus-visible { border-bottom-color: var(--ink); }
   #version { margin-top: 18px; font-size: 12px; letter-spacing: .08em; color: var(--hint); }
   #version:empty { display: none; }
 
   /* Below the fold: brand body style. */
   main, footer { max-width: 1440px; margin: 0 auto; padding: 0 var(--gutter); }
-  section { max-width: 680px; padding: 96px 0 0; }
+  section { max-width: 550px; padding: 96px 0 0; }
   main p, main li { font-size: 18px; line-height: 1.5; letter-spacing: .015em; }
   main p { margin-bottom: 16px; }
   h2 { font-size: 27px; font-weight: 400; line-height: 1.25; letter-spacing: .01em; margin-bottom: 20px; }
-  .shot { display: block; width: 100%; height: auto; margin-top: 32px; border: 1px solid var(--hairline); border-radius: 14px; }
-  ol { padding-left: 24px; margin-bottom: 16px; }
+  h3 { font-size: 22px; font-weight: 400; line-height: 1.3; letter-spacing: .01em; margin: 44px 0 12px; }
+  ol, ul { padding-left: 24px; margin-bottom: 16px; }
   li { margin-bottom: 6px; }
   code, pre { font: 14px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
   pre { padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--hairline); border-radius: 6px; overflow-x: auto; }
@@ -89,22 +91,17 @@
   @media (max-width: 999px) {
     :root { --gutter: 64px; }
     .stroke { left: 46px; width: min(727.2px, calc(100vw - 92px)); }
-    .fr { right: 64px; }
   }
   @media (max-width: 599px) {
     :root { --gutter: 24px; }
-    .hero { min-height: 640px; }
+    .hero { min-height: min(640px, 100svh); padding-top: clamp(300px, 55svh, 440px); padding-bottom: 30px; }
     .wm { top: 35px; }
     .stroke { left: 17.6px; top: 194.1px; width: 354.8px; } /* the 362 px stroke box at 14 / 176, whole on screen */
-    .copy { top: 440px; }
     h1 { font-size: 27px; line-height: 1.25; }
     .dl { margin-top: 30px; }
     .foot { font-size: 11px; }
-    .hero .foot { bottom: 30px; }
-    .hero .fl { bottom: 54px; } .fr { left: 24px; right: auto; }
     section { padding-top: 72px; }
     main p, main li { font-size: 17px; }
-    .shot { border-radius: 8px; }
     footer { padding-top: 72px; }
   }
 </style>
@@ -121,17 +118,15 @@
     <a class="dl" href="https://github.com/nickmeehan/fragments/releases/latest/download/Fragments.zip"><span class="dot"></span><span class="u">Download for macOS</span></a>
     <p id="version"></p>
   </div>
-  <p class="foot fl"><a href="https://github.com/nickmeehan/fragments">Source on GitHub</a></p>
-  <p class="foot fr"><span class="sys">⌥</span> Space to begin&ensp;·&ensp;macOS 14 and later</p>
+  <p class="foot"><a href="https://github.com/nickmeehan/fragments">Source on GitHub</a></p>
 </header>
 <main>
   <section>
-    <p>Press a hotkey, type or dictate a thought, and it becomes a Markdown note or starts a Claude Code session.</p>
-    <img class="shot" src="capture.png" width="1360" height="800" alt="The Fragments capture panel: a text field with a captured thought and the chords ⌘↩ keep, ⌘⇧↩ Rex, esc discard.">
-  </section>
-  <section>
-    <h2>First launch</h2>
-    <p>macOS will say “Apple could not verify Fragments is free of malware” because the app is not yet notarized.</p>
+    <h2>Getting started</h2>
+    <p>Download, unzip, and drag Fragments to Applications. It needs macOS 14 or later.</p>
+
+    <h3>First launch</h3>
+    <p>macOS says “Apple could not verify Fragments is free of malware” because the app is not notarized yet. The code is public at <a href="https://github.com/nickmeehan/fragments">github.com/nickmeehan/fragments</a>, so anyone can read it, and you can build it yourself from the source if you would rather not trust a download. To open the download anyway:</p>
     <ol>
       <li>Open System Settings → Privacy &amp; Security and scroll to the Security section.</li>
       <li>Click <strong>Open Anyway</strong>.</li>
@@ -139,10 +134,19 @@
     </ol>
     <p>Or, from Terminal:</p>
     <pre><code>xattr -d com.apple.quarantine /Applications/Fragments.app</code></pre>
+
+    <h3>Using it</h3>
+    <p><span class="sys">⌥</span> Space opens the capture panel from any app. Type the thought, or dictate it: Fragments starts Wispr Flow hands-free when the panel opens, if you have it. Then:</p>
+    <ul>
+      <li><span class="sys">⌘↩</span> keeps it as a Markdown file in <code>~/.fragments</code>.</li>
+      <li><span class="sys">⌘⇧↩</span> starts a Rex session with it. Rex is a terminal app for Claude Code sessions; the thought becomes the session’s first prompt.</li>
+      <li>esc discards it.</li>
+    </ul>
+    <p><span class="sys">⌥⇧</span> Space opens the list of past fragments.</p>
   </section>
 </main>
 <footer class="foot">
-  <a href="https://github.com/nickmeehan/fragments">Source on GitHub</a>&ensp;·&ensp;Requires macOS 14 or later. Apple Silicon and Intel.
+  <a href="https://github.com/nickmeehan/fragments">Source on GitHub</a>&ensp;·&ensp;macOS 14 or later
 </footer>
 <script>
   fetch('https://api.github.com/repos/nickmeehan/fragments/releases/latest')
