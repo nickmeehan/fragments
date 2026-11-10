@@ -47,16 +47,17 @@
   a { color: inherit; }
 
   /* Hero: the render's 1440 × 900 composition, centred on wider screens. The mark and watermark sit at fixed
-     positions; the copy and the foot flow below them, so the hero grows with its content instead of the viewport
-     and the foot can never land on the button. */
+     positions; the copy and the foot flow below them, so the foot can never land on the button. The copy's offset
+     scales with the viewport (604 at 900 tall, floor 400 just under the stroke) so the button stays above the
+     fold on short windows. */
   .hero {
     position: relative;
     display: flex;
     flex-direction: column;
     max-width: 1440px;
-    min-height: 900px;
+    min-height: min(900px, 100svh);
     margin: 0 auto;
-    padding: 604px 0 34px var(--gutter);
+    padding: clamp(400px, 67.2svh, 604px) 0 34px var(--gutter);
     overflow: hidden;
   }
   .wm { position: absolute; left: var(--gutter); top: 55px; font-size: 21.4px; line-height: 1; letter-spacing: .02em; } /* 15 px cap, cap top at 60 */
@@ -93,7 +94,7 @@
   }
   @media (max-width: 599px) {
     :root { --gutter: 24px; }
-    .hero { min-height: 640px; padding-top: 440px; padding-bottom: 30px; }
+    .hero { min-height: min(640px, 100svh); padding-top: clamp(300px, 55svh, 440px); padding-bottom: 30px; }
     .wm { top: 35px; }
     .stroke { left: 17.6px; top: 194.1px; width: 354.8px; } /* the 362 px stroke box at 14 / 176, whole on screen */
     h1 { font-size: 27px; line-height: 1.25; }
