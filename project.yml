@@ -1,0 +1,73 @@
+# XcodeGen spec — the source of truth for Fragments.xcodeproj (generated, git-ignored).
+# `bin/setup` regenerates it; never hand-edit the .xcodeproj.
+name: Fragments
+options:
+  bundleIdPrefix: tech.meehan
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.2"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Ad-hoc until an Apple ID is signed into Xcode. Then: CODE_SIGN_STYLE Automatic,
+    # CODE_SIGN_IDENTITY "Apple Development", DEVELOPMENT_TEAM <team id> for a stable
+    # identity (docs/decisions.md).
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+packages:
+  FragmentsCore:
+    path: FragmentsCore
+targets:
+  Fragments:
+    type: application
+    platform: macOS
+    sources:
+      - path: Fragments
+    dependencies:
+      - package: FragmentsCore
+    info:
+      path: Fragments/Info.plist
+      properties:
+        LSUIElement: true
+        NSHumanReadableCopyright: ""
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: tech.meehan.fragments
+            CFBundleURLSchemes: [fragments]
+    entitlements:
+      path: Fragments/Fragments.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: tech.meehan.fragments
+        ENABLE_HARDENED_RUNTIME: false
+  FragmentsUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: FragmentsUITests
+    dependencies:
+      - target: Fragments
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        # XCTAssert autoclosures are nonisolated; XCUI APIs are @MainActor. Swift 5 mode keeps UI tests readable.
+        SWIFT_VERSION: "5.0"
+schemes:
+  Fragments:
+    build:
+      targets:
+        Fragments: all
+        FragmentsUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - FragmentsUITests

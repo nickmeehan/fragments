@@ -1,0 +1,49 @@
+# Merge to main → version from commit types (bin/next-version) → universal Release build → GitHub
+# Release with Fragments.zip. `gh release create` makes the tag; nothing listens for tags, so the
+# default token is enough and no run triggers another. Phase 1: ad-hoc signed, not notarized
+# (docs/decisions.md, 2026-11-08).
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release this version instead of the computed one, e.g. 1.0.0
+        type: string
+concurrency:
+  group: release
+  cancel-in-progress: false  # back-to-back merges serialize so each sees the previous tag
+permissions:
+  contents: write
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: next
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then echo "version=$VERSION"; else bin/next-version; fi >> "$GITHUB_OUTPUT"
+  release:
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: macos-latest  # swap this label for a Blacksmith macOS runner
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: bin/setup
+      - name: Build
+        run: >
+          xcodebuild -project Fragments.xcodeproj -scheme Fragments -configuration Release
+          -derivedDataPath build/DerivedData -destination 'generic/platform=macOS' -quiet
+          MARKETING_VERSION="${{ needs.version.outputs.version }}" build
+      - run: ditto -c -k --keepParent build/DerivedData/Build/Products/Release/Fragments.app Fragments.zip
+      - run: gh release create "v${{ needs.version.outputs.version }}" Fragments.zip --generate-notes --target "$GITHUB_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}

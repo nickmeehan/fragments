@@ -1,0 +1,91 @@
+import AppKit
+import FragmentsCore
+import os
+
+/// Runs Launcher's argv through a login shell so claude and rex resolve from the user's real PATH.
+enum Shell {
+    private static let log = Logger(subsystem: "tech.meehan.fragments", category: "shell")
+
+    @discardableResult
+    static func run(_ argv: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(filePath: "/bin/zsh")
+        process.arguments = ["-lc", Launcher.pathLine + "; " + argv.map(\.shellQuoted).joined(separator: " ")]
+        let pipe = Pipe()  // ponytail: blocks on >64KB of output; these commands print a line at most.
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+        } catch {
+            return (-1, error.localizedDescription)
+        }
+        process.waitUntilExit()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        log.info("\(argv.joined(separator: " "), privacy: .public) → \(process.terminationStatus)")
+        return (process.terminationStatus, output)
+    }
+}
+
+/// Starts and re-opens Claude Code sessions for fragments in Rex.
+@MainActor
+enum Runner {
+    static func launch(_ fragment: Fragment, store: FragmentStore) {
+        guard let session = fragment.session else { return }
+        let contents = Launcher.startScript(
+            prompt: fragment.text, prefs: Prefs.launch, sessionID: session.claudeSessionID)
+        guard let script = write(contents, for: fragment, store: store) else { return }
+        start(session, script: script)
+    }
+
+    /// Brings the session forward. A session that is gone (reboot, closed) is rebuilt around
+    /// `claude --resume`, so the conversation is never lost.
+    static func attach(_ fragment: Fragment, store: FragmentStore) {
+        guard let session = fragment.session else { return }
+        let found = Shell.run(Launcher.rexInspect(label: session.name))
+        if found.status == 0, let id = Launcher.sessionID(in: found.output) {
+            show(id)
+            return
+        }
+        let resume = Launcher.resumeScript(folder: session.folder, sessionID: session.claudeSessionID)
+        guard let script = write(resume, for: fragment, store: store) else { return }
+        start(session, script: script)
+    }
+
+    /// `rex new` prints the new session's id; `session.select` then shows it in the app.
+    private static func start(_ session: Session, script: URL) {
+        let created = Shell.run(Launcher.rexNew(label: session.name, folder: session.folder, script: script))
+        guard check(created, "Rex could not start the session.") else { return }
+        guard let id = Launcher.sessionID(in: created.output) else {
+            fail("Rex did not report the new session's id.", created.output)
+            return
+        }
+        show(id)
+    }
+
+    private static func show(_ sessionID: String) {
+        check(Shell.run(Launcher.rexSelect(sessionID: sessionID)), "Rex could not show the session.")
+    }
+
+    private static func write(_ contents: String, for fragment: Fragment, store: FragmentStore) -> URL? {
+        do {
+            return try store.writeScript(contents, for: fragment)
+        } catch {
+            fail("Could not write the session script.", error.localizedDescription)
+            return nil
+        }
+    }
+
+    @discardableResult
+    private static func check(_ result: (status: Int32, output: String), _ message: String) -> Bool {
+        guard result.status != 0 else { return true }
+        fail(message, result.output)
+        return false
+    }
+
+    private static func fail(_ message: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.runModal()
+    }
+}

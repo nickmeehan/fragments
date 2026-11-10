@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Build and (re)launch the app. Extra args go to the app: bin/run --capture, bin/run --list.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+bin/setup
+xcodebuild -project Fragments.xcodeproj -scheme Fragments -configuration Debug \
+  -derivedDataPath build/DerivedData -destination platform=macOS,arch=arm64 -quiet build
+pkill -x Fragments 2>/dev/null || true
+open -n build/DerivedData/Build/Products/Debug/Fragments.app --args "$@"

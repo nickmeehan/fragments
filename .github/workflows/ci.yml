@@ -1,0 +1,16 @@
+# The definition of done, run where the local toolchain can't: bin/ci on every PR and on main.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ci:
+    runs-on: macos-latest # swap for a Blacksmith macOS runner label here
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: bin/ci

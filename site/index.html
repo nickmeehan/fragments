@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fragments</title>
+<meta name="description" content="Press a hotkey, type or dictate a thought, and it becomes a Markdown note or starts a Claude Code session.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1d1d1f;
+    --muted: #6e6e73;
+    --rule: #e5e5e7;
+    --code: #f4f4f5;
+    --accent: #2f6fed;
+    --accent-fg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214;
+      --fg: #ededef;
+      --muted: #9a9aa0;
+      --rule: #2a2a2e;
+      --code: #1c1c1f;
+      --accent: #5b8cff;
+      --accent-fg: #0b1020;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 72px 16px 64px; }
+  h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 12px; }
+  h2 { font-size: 20px; margin: 48px 0 8px; }
+  p { margin: 0 0 12px; }
+  .pitch { font-size: 20px; color: var(--muted); margin-bottom: 28px; }
+  .button {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--accent-fg);
+    text-decoration: none;
+    font-weight: 600;
+    padding: 12px 22px;
+    border-radius: 10px;
+  }
+  .button:hover { filter: brightness(1.08); }
+  .small { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+  .small:empty { display: none; }
+  .shot {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 40px 0 0;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+  }
+  ol { padding-left: 22px; margin: 0 0 12px; }
+  li { margin-bottom: 4px; }
+  code, pre {
+    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--code);
+    border-radius: 6px;
+  }
+  code { padding: 2px 5px; }
+  pre { padding: 12px 14px; overflow-x: auto; margin: 0 0 12px; }
+  pre code { padding: 0; background: none; }
+  a { color: var(--accent); }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fragments</h1>
+  <p class="pitch">Press a hotkey, type or dictate a thought, and it becomes a Markdown note or starts a Claude Code session.</p>
+
+  <a class="button" href="https://github.com/nickmeehan/fragments/releases/latest/download/Fragments.zip">Download for macOS</a>
+  <p class="small">Requires macOS 14 or later. Apple Silicon and Intel.</p>
+  <p class="small" id="version"></p>
+
+  <img class="shot" src="capture.png" width="1360" height="800" alt="The Fragments capture panel: a text field with a captured thought and the chords ⌘↩ keep, ⌘⇧↩ Rex, esc discard.">
+
+  <h2>First launch</h2>
+  <p>macOS will say “Apple could not verify Fragments is free of malware” because the app is not yet notarized.</p>
+  <ol>
+    <li>Open System Settings → Privacy &amp; Security and scroll to the Security section.</li>
+    <li>Click <strong>Open Anyway</strong>.</li>
+    <li>Open Fragments again.</li>
+  </ol>
+  <p>Or, from Terminal:</p>
+  <pre><code>xattr -d com.apple.quarantine /Applications/Fragments.app</code></pre>
+
+  <footer>
+    <a href="https://github.com/nickmeehan/fragments">Source on GitHub</a>
+  </footer>
+</main>
+<script>
+  fetch('https://api.github.com/repos/nickmeehan/fragments/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+    .then(function (release) {
+      document.getElementById('version').textContent = 'Latest release: ' + release.tag_name;
+    })
+    .catch(function () {});
+</script>
+</body>
+</html>

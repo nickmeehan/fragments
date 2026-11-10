@@ -1,0 +1,87 @@
+{
+  "extraKnownMarketplaces": {
+    "ichiba": {
+      "source": { "source": "github", "repo": "nickmeehan/ichiba" }
+    },
+    "claude-plugins-official": {
+      "source": { "source": "github", "repo": "anthropics/claude-plugins-official" }
+    },
+    "impeccable": {
+      "source": { "source": "github", "repo": "pbakaus/impeccable" }
+    },
+    "ponytail": {
+      "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
+    }
+  },
+  "enabledPlugins": {
+    "dev-workflow@ichiba": true,
+    "skill-creator@claude-plugins-official": true,
+    "mattpocock-skills@claude-plugins-official": true,
+    "impeccable@impeccable": true,
+    "ponytail@ponytail": true
+  },
+  "permissions": {
+    "deny": [
+      "Read(/.env)",
+      "Edit(/.env)",
+      "Write(/.env)",
+      "Read(/.env.local)",
+      "Edit(/.env.local)",
+      "Edit(/Fragments.xcodeproj/**)",
+      "Write(/Fragments.xcodeproj/**)"
+    ],
+    "ask": [
+      "Edit(/bin/ci)",
+      "Edit(/.github/**)",
+      "Write(/.github/**)",
+      "Edit(/AGENTS.md)",
+      "Edit(/CLAUDE.md)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/hooks/**)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh", "timeout": 600 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.sh" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-edits.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/format-file.sh" }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-pr-audit.sh" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-ci.sh", "timeout": 900 }
+        ]
+      }
+    ]
+  }
+}
