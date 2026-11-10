@@ -40,8 +40,7 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 - Side effects (processes, key events, windows) stay in `Fragments/`; state and decisions stay in
   `FragmentsCore/` where they are testable.
 - Commits follow Conventional Commits v1.0.0 (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`,
-  `chore:`), imperative mood, one logical change each. Site-only changes (`site/`) use `chore(site):`
-  so `bin/next-version` cuts no app release.
+  `chore:`), imperative mood, one logical change each.
 - Never weaken a gate to get green: no disabled tests, no `swift-format-ignore`, no skipped steps.
   Genuinely blocked? Stop and surface it with your analysis instead of routing around.
 - Anything that needs the user's hands (the UI-test automation grant, Xcode sign-in, an OS upgrade for Rex)
