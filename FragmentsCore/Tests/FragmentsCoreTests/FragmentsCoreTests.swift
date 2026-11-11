@@ -124,6 +124,54 @@ extension KeyCombo {
         #expect(Launcher.sessionID(in: "Error: session target \"frag-nope\" not found\n") == nil)
     }
 
+    /// Trimmed from `rex client list --json` (Rex Beta 1925): a lost app client left behind by an update,
+    /// the live app, a client with no `info`, and the CLI itself.
+    private let clientList = """
+        zprofile noise
+        {
+          "clients": [
+            {
+              "client_id": "client:stale",
+              "info": { "kind": "app", "name": "Rex Beta", "version": "0.1.0 (1853)" },
+              "connection_state": "lost"
+            },
+            {
+              "client_id": "client:live",
+              "info": { "kind": "app", "name": "Rex Beta", "version": "0.1.0 (1925)" },
+              "connection_state": "connected",
+              "session_ids": ["session:1"]
+            },
+            { "client_id": "client:anon", "connection_state": "connected" },
+            {
+              "client_id": "client:cli",
+              "info": { "kind": "cli", "name": "rex" },
+              "connection_state": "connected"
+            }
+          ]
+        }
+
+        """
+
+    @Test func appClientIsTheConnectedAppNotAStaleOne() {
+        #expect(Launcher.appClientID(in: clientList) == "client:live")
+    }
+
+    @Test func appClientIsNilWithoutALiveApp() {
+        let onlyCLIs = clientList.replacingOccurrences(of: "\"kind\": \"app\"", with: "\"kind\": \"cli\"")
+        #expect(Launcher.appClientID(in: onlyCLIs) == nil)
+        #expect(Launcher.appClientID(in: "{\"clients\": []}") == nil)
+        #expect(Launcher.appClientID(in: "Error: no server\n") == nil)
+        #expect(Launcher.appClientID(in: "}{") == nil)
+    }
+
+    @Test func rexSelectNamesTheClientWhenKnown() {
+        #expect(Launcher.rexSelect(sessionID: "session:1") == ["rex", "do", "session.select", "session_id=session:1"])
+        #expect(
+            Launcher.rexSelect(sessionID: "session:1", client: "client:live") == [
+                "rex", "-C", "client:live", "do", "session.select", "session_id=session:1",
+            ])
+    }
+
     @Test func shellQuoting() {
         #expect("it's".shellQuoted == "'it'\\''s'")
     }
