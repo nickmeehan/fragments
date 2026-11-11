@@ -68,10 +68,11 @@ enum Runner {
         let client = Launcher.appClientID(in: Shell.run(Launcher.rexClients()).output)
         let selected = Shell.run(Launcher.rexSelect(sessionID: sessionID, client: client))
         guard selected.status != 0 else { return }
+        // The alert first (it is modal), then Rex, so the explanation is not left behind Rex's window.
+        fail("The session is running in Rex, but Fragments could not bring it to the front.", selected.output)
         if let rex = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.superlogical.rex") {
             NSWorkspace.shared.openApplication(at: rex, configuration: NSWorkspace.OpenConfiguration())
         }
-        fail("The session is running in Rex, but Fragments could not bring it to the front.", selected.output)
     }
 
     private static func write(_ contents: String, for fragment: Fragment, store: FragmentStore) -> URL? {
