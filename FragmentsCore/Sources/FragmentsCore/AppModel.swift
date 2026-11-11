@@ -20,9 +20,14 @@ public final class AppModel {
         case startDictation
         case launch(Fragment)
         case attach(Fragment)
-        /// Hand the thought to another app through its link.
-        case openURL(URL)
+        /// Run an action's program on a saved fragment.
+        case start(ActionRun)
     }
+
+    /// Built in: ⌘↩ keeps the thought and does nothing else.
+    public static let keep = "keep"
+    /// Rex keeps its own path until it becomes an action; the id stays what fragments on disk already say.
+    public static let rex = "claude"
 
     public private(set) var mode: Mode = .capture
     public var draft = ""
@@ -30,6 +35,8 @@ public final class AppModel {
     public private(set) var selection = 0
     public private(set) var pendingHint = ""
     public var prefs: LaunchPrefs
+    /// Every action found, on or off; the shell refreshes it when capture opens.
+    public var actions: [ActionInfo] = []
     public let store: FragmentStore
 
     public init(store: FragmentStore, prefs: LaunchPrefs) {
@@ -39,6 +46,11 @@ public final class AppModel {
 
     public var hints: [String] {
         HintLabels.labels(count: fragments.count)
+    }
+
+    /// The capture footer: keep, Rex, each action that is on, esc.
+    public var captureHints: [String] {
+        ["⌘↩ keep", "⌘⇧↩ Rex"] + actions.filter(\.on).map(\.hint) + ["esc discard"]
     }
 
     public func beginCapture(text: String = "") {
@@ -67,11 +79,11 @@ public final class AppModel {
 
     /// Saves the draft as a fragment. Nil when there is nothing worth saving.
     @discardableResult
-    public func commit(action: Action) -> Fragment? {
+    public func commit(action: String) -> Fragment? {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         var fragment = Fragment(text: text, action: action)
-        if action == .claude {
+        if action == AppModel.rex {
             fragment.session = Session(
                 name: "frag-\(fragment.id)", claudeSessionID: UUID().uuidString.lowercased(), folder: prefs.folder)
         }
@@ -84,24 +96,30 @@ public final class AppModel {
         switch key {
         case .escape:
             return .close
+        case .enter(.command):
+            commit(action: AppModel.keep)
+            return .close
+        case .enter([.command, .shift]):
+            guard let fragment = commit(action: AppModel.rex) else { return .close }
+            return .launch(fragment)
         case .enter(let modifiers) where modifiers.contains(.command):
             // A ⌘↩ chord no action owns is swallowed: the draft stays put and AppKit gets nothing to beep at.
-            guard let action = Action.allCases.first(where: { $0.chord == modifiers }) else { return .handled }
-            guard let fragment = commit(action: action) else { return .close }
-            return kickoff(fragment)
+            return start(KeyCombo(modifiers: modifiers, key: "return")) ?? .handled
+        case .command(let chord):
+            // Any other ⌘ chord no action owns belongs to the editor: ⌘A, ⌘V…
+            return start(chord) ?? .ignored
         default:
             return .ignored
         }
     }
 
-    /// How the shell starts a saved fragment's action. One arm per kickoff: `.launch` for a session Fragments
-    /// can come back to, `.openURL` for a hand-off to another app.
-    private func kickoff(_ fragment: Fragment) -> Command {
-        switch fragment.action {
-        case .keep: .close
-        case .claude: .launch(fragment)
-        case .cowork: .openURL(Launcher.coworkURL(prompt: fragment.text))
-        }
+    /// Saves the draft for the action that is on for this chord and has the shell run it. Nil when no action
+    /// owns the chord.
+    private func start(_ chord: KeyCombo) -> Command? {
+        guard let action = actions.first(where: { $0.on && $0.chord == chord }) else { return nil }
+        guard let fragment = commit(action: action.id) else { return .close }
+        let input = ActionInput(fragment: fragment, settings: action.settings)
+        return .start(ActionRun(name: action.name, program: action.program, input: input))
     }
 
     private func handleList(_ key: Key) -> Command {
@@ -141,9 +159,13 @@ public final class AppModel {
         return .handled
     }
 
-    /// Esc and every capture chord save the edit and return to the list; the editor has no other use for them.
+    /// Esc and every ⌘↩ chord save the edit and return to the list; the editor has no other use for them.
     private func handleDetail(_ key: Key, id: Fragment.ID) -> Command {
-        guard key == .escape || Action.allCases.contains(where: { key == .enter($0.chord) }) else { return .ignored }
+        switch key {
+        case .escape: break
+        case .enter(let modifiers) where modifiers.contains(.command): break
+        default: return .ignored
+        }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if var fragment = fragments.first(where: { $0.id == id }), fragment.text != text, !text.isEmpty {
             fragment.text = text
@@ -173,30 +195,5 @@ public final class AppModel {
         try? store.trash(fragments[selection])
         reload()
         selection = min(selection, max(fragments.count - 1, 0))
-    }
-}
-
-// MARK: Capture chords
-
-extension Action {
-    /// The modifiers that, held with ↩ in capture, choose this action. A new kickoff takes a free chord here;
-    /// capture, the detail editor and the footer all read it from this one place.
-    public var chord: Modifiers {
-        switch self {
-        case .keep: .command
-        case .claude: [.command, .shift]
-        case .cowork: [.command, .option]
-        }
-    }
-
-    /// The chord as the capture footer shows it: `⌘⌥↩ Cowork`.
-    public var hint: String {
-        let name =
-            switch self {
-            case .keep: "keep"
-            case .claude: "Rex"
-            case .cowork: "Cowork"
-            }
-        return chord.symbols + "↩ " + name
     }
 }

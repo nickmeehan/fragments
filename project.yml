@@ -27,6 +27,14 @@ targets:
     platform: macOS
     sources:
       - path: Fragments
+      # Shipped as source: the app compiles the action library and the bundled actions with the user's swiftc,
+      # the same way it compiles theirs (FragmentsCore/Sources/FragmentsCore/ActionBuild.swift).
+      - path: FragmentsCore/Sources/FragmentsAction
+        type: folder
+        buildPhase: resources
+      - path: FragmentsCore/Actions
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: FragmentsCore
     info:

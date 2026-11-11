@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import Cowork
+@testable import FragmentsAction
 @testable import FragmentsCore
 
 private func temporaryStore() -> FragmentStore {
@@ -12,7 +14,7 @@ private func temporaryStore() -> FragmentStore {
         let session = Session(name: "frag-1", claudeSessionID: "abc-123", folder: "/tmp/proj")
         let original = Fragment(
             id: "20261106-224512-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000),
-            text: "look into: the thing\n\nsecond paragraph", action: .claude, session: session)
+            text: "look into: the thing\n\nsecond paragraph", action: "claude", session: session)
         let parsed = try #require(Fragment(markdown: original.markdown))
         #expect(parsed == original)
     }
@@ -24,14 +26,35 @@ private func temporaryStore() -> FragmentStore {
         #expect(parsed.session == nil)
     }
 
-    @Test func coworkActionSurvivesTheRoundTripWithoutASession() throws {
+    /// An action that has been removed or renamed must not turn its fragments into notes on the next save.
+    @Test func anActionIdSurvivesTheRoundTripEvenWhenNothingKnowsIt() throws {
         let original = Fragment(
             id: "20261111-090000-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000),
-            text: "draft the update", action: .cowork)
-        #expect(original.markdown.contains("action: cowork"))
+            text: "draft the update", action: "gone-since")
+        #expect(original.markdown.contains("action: gone-since"))
         let parsed = try #require(Fragment(markdown: original.markdown))
         #expect(parsed == original)
         #expect(parsed.session == nil)
+    }
+
+    @Test func aFileWithoutAnActionIsAKeptNote() throws {
+        let parsed = try #require(Fragment(markdown: "---\nid: x\n---\n\nhello\n"))
+        #expect(parsed.action == "keep")
+        #expect(try #require(Fragment(markdown: "---\nid: x\naction:\n---\n\nhello\n")).action == "keep")
+    }
+
+    /// Actions see id, date, text and action. The session is Rex's until launch actions exist.
+    @Test func theWireCarriesTheFragmentWithoutItsSession() throws {
+        let session = Session(name: "frag-1", claudeSessionID: "abc", folder: "/p")
+        let fragment = Fragment(
+            id: "20261111-090000-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000), text: "a\nb",
+            action: "claude", session: session)
+        let json = String(decoding: try ActionWire.encoder.encode(fragment), as: UTF8.self)
+        #expect(
+            json == #"{"action":"claude","created":"2027-01-15T08:00:00Z","id":"20261111-090000-00ff","text":"a\nb"}"#)
+        var withoutSession = fragment
+        withoutSession.session = nil
+        #expect(try ActionWire.decoder.decode(Fragment.self, from: Data(json.utf8)) == withoutSession)
     }
 
     @Test func rejectsFilesWithoutFrontMatter() {
@@ -91,13 +114,17 @@ private func temporaryStore() -> FragmentStore {
         #expect(Modifiers([.control, .option, .shift, .command]).symbols == "⌘⇧⌥⌃")
         #expect(Modifiers().symbols.isEmpty)
     }
-}
 
-extension KeyCombo {
-    fileprivate init(modifiers: Modifiers, key: String) {
-        self.init("x")!
-        self.modifiers = modifiers
-        self.key = key
+    @Test func chordsNameReturnEitherWay() {
+        #expect(KeyCombo("cmd+option+return") == KeyCombo(modifiers: [.command, .option], key: "return"))
+        #expect(KeyCombo("cmd+enter") == KeyCombo(modifiers: .command, key: "return"))
+    }
+
+    @Test func comboSymbolsAreWhatTheFooterShows() {
+        #expect(KeyCombo("cmd+option+return")?.symbols == "⌘⌥↩")
+        #expect(KeyCombo("cmd+r")?.symbols == "⌘R")
+        #expect(KeyCombo("cmd+shift+f5")?.symbols == "⌘⇧F5")
+        #expect(KeyCombo("option+space")?.symbols == "⌥Space")
     }
 }
 
@@ -188,18 +215,6 @@ extension KeyCombo {
             ])
     }
 
-    /// `+`, `&` and `?` would each change the prompt under one query decoder or another if left bare.
-    @Test func coworkLinkCarriesThePromptFullyEscaped() throws {
-        let prompt = "Draft the Q2 update: 1+1 & \"why\"?\nsecond line — caf\u{E9}"
-        let url = Launcher.coworkURL(prompt: prompt)
-        let escaped =
-            "Draft%20the%20Q2%20update%3A%201%2B1%20%26%20%22why%22%3F%0A"
-            + "second%20line%20%E2%80%94%20caf%C3%A9"
-        #expect(url.absoluteString == "claude://cowork/new?q=" + escaped)
-        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        #expect(components.queryItems == [URLQueryItem(name: "q", value: prompt)])
-    }
-
     @Test func shellQuoting() {
         #expect("it's".shellQuoted == "'it'\\''s'")
     }
@@ -210,13 +225,33 @@ extension KeyCombo {
         AppModel(store: temporaryStore(), prefs: LaunchPrefs(folder: "/tmp/proj"))
     }
 
+    /// Cowork on ⌘⌥↩, Remind on ⌘R with a stored setting, Standup off.
+    private func makeModelWithActions() -> AppModel {
+        let model = makeModel()
+        let program = URL(filePath: "/cache/bundled/cowork/action")
+        model.actions = ActionCatalog.resolve(
+            [
+                FoundAction(
+                    id: "cowork", origin: .bundled, program: program,
+                    build: .built(Manifest(name: "Cowork", chord: "cmd+option+return", type: "open"))),
+                FoundAction(
+                    id: "remind", origin: .yours, program: URL(filePath: "/cache/yours/remind/action"),
+                    build: .built(Manifest(name: "Remind", chord: "cmd+r", type: "run"))),
+                FoundAction(
+                    id: "standup", origin: .yours, program: URL(filePath: "/cache/yours/standup/action"),
+                    build: .built(Manifest(name: "Standup", chord: "cmd+u", type: "run"))),
+            ],
+            choices: ["remind": ActionChoice(settings: ["list": "Errands"]), "standup": ActionChoice(on: false)])
+        return model
+    }
+
     @Test func keepSavesAndCloses() throws {
         let model = makeModel()
         model.draft = "  remember the milk \n"
         #expect(model.handle(.enter(.command)) == .close)
         let saved = try model.store.all()
         #expect(saved.map(\.text) == ["remember the milk"])
-        #expect(saved.first?.action == .keep)
+        #expect(saved.first?.action == "keep")
         #expect(model.draft.isEmpty)
     }
 
@@ -242,24 +277,58 @@ extension KeyCombo {
         #expect(try model.store.all().first?.session == session)
     }
 
-    @Test func coworkChordKeepsTheFragmentAndOpensTheLink() throws {
-        let model = makeModel()
+    @Test func anActionsChordSavesTheFragmentAndStartsItsProgram() throws {
+        let model = makeModelWithActions()
         model.draft = "plan the offsite"
-        let link = try #require(URL(string: "claude://cowork/new?q=plan%20the%20offsite"))
-        #expect(model.handle(.enter([.command, .option])) == .openURL(link))
+        guard case .start(let run) = model.handle(.enter([.command, .option])) else {
+            Issue.record("expected start")
+            return
+        }
         let saved = try #require(try model.store.all().first)
         #expect(saved.text == "plan the offsite")
-        #expect(saved.action == .cowork)
+        #expect(saved.action == "cowork")
         #expect(saved.session == nil)
+        #expect(run.name == "Cowork")
+        #expect(run.program == URL(filePath: "/cache/bundled/cowork/action"))
+        #expect(run.input.fragment.id == saved.id)
+        #expect(run.input.fragment.text == "plan the offsite")
+        #expect(run.input.settings.isEmpty)
         #expect(model.draft.isEmpty)
     }
 
-    /// One chord per action is what lets a new kickoff be added without touching the others.
-    @Test func everyActionHasItsOwnCommandChord() {
-        let chords = Action.allCases.map(\.chord)
-        #expect(Set(chords).count == chords.count)
-        #expect(chords.allSatisfy { $0.contains(.command) })
-        #expect(Action.allCases.map(\.hint) == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork"])
+    /// A chord can be any key with ⌘, and the run carries only the settings you changed.
+    @Test func aCommandLetterStartsTheActionThatOwnsIt() throws {
+        let model = makeModelWithActions()
+        model.draft = "buy stamps"
+        guard case .start(let run) = model.handle(.command(KeyCombo(modifiers: .command, key: "r"))) else {
+            Issue.record("expected start")
+            return
+        }
+        #expect(run.name == "Remind")
+        #expect(run.input.fragment.action == "remind")
+        #expect(run.input.settings == ["list": "Errands"])
+    }
+
+    /// ⌘A must still select all: a ⌘ chord no action owns goes to the editor, untouched.
+    @Test func aCommandChordNoActionOwnsGoesToTheEditor() throws {
+        let model = makeModelWithActions()
+        model.draft = "not yet"
+        #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "a"))) == .ignored)
+        #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "u"))) == .ignored)  // Standup is off
+        #expect(model.draft == "not yet")
+        #expect(try model.store.all().isEmpty)
+    }
+
+    @Test func anEmptyDraftStartsNothing() throws {
+        let model = makeModelWithActions()
+        model.draft = "  "
+        #expect(model.handle(.enter([.command, .option])) == .close)
+        #expect(try model.store.all().isEmpty)
+    }
+
+    @Test func theFooterListsKeepRexAndTheActionsThatAreOn() {
+        #expect(
+            makeModelWithActions().captureHints == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork", "⌘R Remind", "esc discard"])
     }
 
     @Test func commandChordNoActionOwnsLeavesTheDraftAlone() throws {
@@ -339,12 +408,15 @@ extension KeyCombo {
         #expect(model.handle(.enter([])) == .handled)
         #expect(model.handle(.enter([.command, .option])) == .handled)
         #expect(model.mode == .list)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "a"))) == .ignored)
+        #expect(model.mode == .detail("20260101-000001-0000"))
     }
 
-    /// The Cowork link reports no session, so there is nothing to attach to: the fragment opens as a note.
-    @Test func coworkFragmentsOpenAsNotes() throws {
+    /// Open and run actions report no session, so there is nothing to attach to: the fragment opens as a note.
+    @Test func handedOffFragmentsOpenAsNotes() throws {
         let model = makeModel()
-        try model.store.save(Fragment(id: "20260101-000001-0000", text: "handed off", action: .cowork))
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "handed off", action: "cowork"))
         model.showList()
         #expect(model.handle(.enter([])) == .handled)
         #expect(model.mode == .detail("20260101-000001-0000"))
@@ -353,7 +425,7 @@ extension KeyCombo {
     @Test func sessionFragmentsAttach() throws {
         let model = makeModel()
         let session = Session(name: "frag-x", claudeSessionID: "sid", folder: "/p")
-        try model.store.save(Fragment(id: "20260101-000001-0000", text: "agent", action: .claude, session: session))
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "agent", action: "claude", session: session))
         model.showList()
         guard case .attach(let fragment) = model.handle(.char("a", [])) else {
             Issue.record("expected attach")

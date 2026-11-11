@@ -15,7 +15,7 @@ step() {
     echo "❌ $name"; tail -60 tmp/ci_step.log; failed=1
   fi
 }
-swift_sources=(Fragments FragmentsCore/Sources FragmentsCore/Tests FragmentsUITests)
+swift_sources=(Fragments FragmentsCore/Sources FragmentsCore/Actions FragmentsCore/Tests FragmentsUITests)
 xcb=(xcodebuild -project Fragments.xcodeproj -scheme Fragments -configuration Debug
      -derivedDataPath build/DerivedData -destination platform=macOS,arch=arm64 -quiet)
 

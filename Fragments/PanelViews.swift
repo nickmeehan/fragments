@@ -25,7 +25,7 @@ struct CaptureView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Editor(text: $model.draft, focused: $focused)
-            Footer(Action.allCases.map(\.hint) + ["esc discard"])
+            Footer(model.captureHints)
         }
         .padding(16)
         .onAppear { DispatchQueue.main.async { focused = true } }

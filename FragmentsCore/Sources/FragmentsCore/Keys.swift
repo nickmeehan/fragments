@@ -25,16 +25,24 @@ public struct Modifiers: OptionSet, Hashable, Sendable {
 public enum Key: Equatable, Sendable {
     case char(Character, Modifiers)
     case enter(Modifiers)
+    /// Any other key held with ⌘: an action's chord, or the editor's (⌘A, ⌘V…) when no action owns it.
+    case command(KeyCombo)
     case escape
     case up
     case down
 }
 
-/// A hotkey written the way Settings stores it: `option+space`, `cmd+shift+f`.
-public struct KeyCombo: Equatable, Sendable {
+/// A hotkey written the way Settings stores it: `option+space`, `cmd+shift+f`. Also an action's chord in the
+/// capture panel: `cmd+option+return`, `cmd+r`.
+public struct KeyCombo: Hashable, Sendable {
     public var modifiers: Modifiers
-    /// Lowercase key name: `space`, `a`, `f5`.
+    /// Lowercase key name: `space`, `a`, `f5`, `return`.
     public var key: String
+
+    public init(modifiers: Modifiers, key: String) {
+        self.modifiers = modifiers
+        self.key = key
+    }
 
     public init?(_ string: String) {
         let parts = string.lowercased().split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -50,6 +58,12 @@ public struct KeyCombo: Equatable, Sendable {
             }
         }
         self.modifiers = modifiers
-        key = last
+        key = ["enter": "return", "esc": "escape"][last] ?? last
+    }
+
+    /// As the footer and Settings show it: `⌘⌥↩`, `⌘R`, `⌘F5`.
+    public var symbols: String {
+        let glyphs = ["return": "↩", "space": "Space", "tab": "⇥", "delete": "⌫", "escape": "esc"]
+        return modifiers.symbols + (glyphs[key] ?? key.uppercased())
     }
 }

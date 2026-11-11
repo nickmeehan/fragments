@@ -1,15 +1,5 @@
 import Foundation
 
-/// What the user asked Fragments to do with a captured thought. Every case but `keep` also kicks the thought off
-/// somewhere else, and each is chosen by its own capture chord (`Action.chord`).
-public enum Action: String, CaseIterable, Sendable {
-    case keep
-    /// Claude Code, in a Rex session Fragments can come back to.
-    case claude
-    /// Claude Cowork, in the Claude desktop app. A hand-off: nothing comes back to attach to.
-    case cowork
-}
-
 /// A Claude Code session that was started from a fragment, living in a Rex terminal session.
 public struct Session: Equatable, Sendable {
     /// Rex session label.
@@ -24,16 +14,19 @@ public struct Session: Equatable, Sendable {
     }
 }
 
-/// One captured thought: a Markdown file with front matter in the fragments folder.
+/// One captured thought: a Markdown file with front matter in the fragments folder. It is also the one argument
+/// every action receives.
 public struct Fragment: Equatable, Identifiable, Sendable {
     public var id: String
     public var createdAt: Date
     public var text: String
-    public var action: Action
+    /// The id of the action the thought was sent to: `keep`, `claude` for Rex, or an action folder's name. A plain
+    /// string, so a fragment whose action is gone keeps its id through an edit.
+    public var action: String
     public var session: Session?
 
     public init(
-        id: String = Fragment.newID(), createdAt: Date = .now, text: String, action: Action = .keep,
+        id: String = Fragment.newID(), createdAt: Date = .now, text: String, action: String = "keep",
         session: Session? = nil
     ) {
         self.id = id
@@ -60,7 +53,7 @@ public struct Fragment: Equatable, Identifiable, Sendable {
     // MARK: Markdown
 
     public var markdown: String {
-        var head = ["id: \(id)", "created: \(createdAt.formatted(.iso8601))", "action: \(action.rawValue)"]
+        var head = ["id: \(id)", "created: \(createdAt.formatted(.iso8601))", "action: \(action)"]
         if let session {
             head += [
                 "session: \(session.name)", "claude_session: \(session.claudeSessionID)",
@@ -84,12 +77,38 @@ public struct Fragment: Equatable, Identifiable, Sendable {
         self.id = id
         createdAt = fields["created"].flatMap { try? Date($0, strategy: .iso8601) } ?? .distantPast
         text = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        action = fields["action"].flatMap(Action.init(rawValue:)) ?? .keep
+        action = fields["action"].flatMap { $0.isEmpty ? nil : $0 } ?? "keep"
         if let name = fields["session"] {
             session = Session(
                 name: name, claudeSessionID: fields["claude_session"] ?? "", folder: fields["folder"] ?? "")
         } else {
             session = nil
         }
+    }
+}
+
+// MARK: On the wire
+
+/// What an action sees of a fragment. The session stays out until launch actions exist; it is Rex's alone today.
+extension Fragment: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, created, text, action
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            createdAt: try container.decode(Date.self, forKey: .created),
+            text: try container.decode(String.self, forKey: .text),
+            action: try container.decode(String.self, forKey: .action))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(createdAt, forKey: .created)
+        try container.encode(text, forKey: .text)
+        try container.encode(action, forKey: .action)
     }
 }

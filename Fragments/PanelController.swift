@@ -29,6 +29,8 @@ final class PanelController {
         panel.hidesOnDeactivate = false  // we never activate; the panel takes key focus on its own
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(rootView: PanelRoot(model: model))
+        model.actions = ActionHost.shared.actions
+        ActionHost.shared.onChange = { [weak model] actions in model?.actions = actions }
         // `self?.handle(event) ?? event` would also resurrect the keys handle() swallows (nil means both
         // "no self" and "consumed"), handing them to AppKit to beep at; keep the two cases apart.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -47,6 +49,7 @@ final class PanelController {
         model.beginCapture(text: text)
         show()
         startDictationSoon()
+        ActionHost.shared.refresh()  // picks up an action folder saved since the last capture
     }
 
     func showList() {
@@ -100,16 +103,17 @@ final class PanelController {
         case .attach(let fragment):
             hide()
             Runner.attach(fragment, store: model.store)
-        case .openURL(let url):
+        case .start(let run):
             hide()
-            Runner.open(url)
+            ActionHost.shared.start(run)
         }
         return nil
     }
 }
 
 extension Key {
-    /// Command and control chords stay with AppKit (⌘A, ⌘V…) unless they are enter.
+    /// Control chords stay with AppKit. Command chords become `.command` so an action can own one; the model hands
+    /// back the ones it doesn't (⌘A, ⌘V…).
     init?(_ event: NSEvent) {
         var modifiers = Modifiers()
         let flags = event.modifierFlags
@@ -123,9 +127,14 @@ extension Key {
         case 126: self = .up
         case 125: self = .down
         default:
-            guard !modifiers.contains(.command), !modifiers.contains(.control),
-                let character = event.charactersIgnoringModifiers?.first
-            else { return nil }
+            guard let character = event.charactersIgnoringModifiers?.first else { return nil }
+            if modifiers.contains(.command) {
+                // By key code, so ⌘⇧1 is `cmd+shift+1` and not `!`.
+                let key = HotKey.keyNames[event.keyCode] ?? String(character).lowercased()
+                self = .command(KeyCombo(modifiers: modifiers, key: key))
+                return
+            }
+            guard !modifiers.contains(.control) else { return nil }
             self = .char(character, modifiers)
         }
     }

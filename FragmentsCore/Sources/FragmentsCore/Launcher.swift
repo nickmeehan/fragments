@@ -15,8 +15,7 @@ public struct LaunchPrefs: Equatable, Sendable {
     }
 }
 
-/// Builds what starts a kickoff: the shell scripts and argv vectors for agent sessions in Rex, and the link that
-/// hands a prompt to Cowork. Pure: nothing runs here.
+/// Builds the shell scripts and argv vectors that start and re-open agent sessions in Rex. Pure: nothing runs here.
 public enum Launcher {
     /// Rex adds its CLI to the PATH of terminals it opens, nowhere else; the server keeps it here.
     private static let rexBinDir =
@@ -103,23 +102,6 @@ public enum Launcher {
             return info?["kind"] as? String == "app" && client["connection_state"] as? String == "connected"
         }
         return live?["client_id"] as? String
-    }
-
-    // MARK: Cowork (Claude desktop app)
-    // From Anthropic's "Open Claude Desktop with a link" (updated 2026-06-30), not yet run against the app —
-    // see docs/decisions.md.
-
-    /// RFC 3986's unreserved characters: the only ones every query decoder leaves alone.
-    private static let unreserved = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-
-    /// Opens a new Cowork session in the Claude desktop app with the prompt in its composer. The link only fills
-    /// the composer in; the user sends it from there. Everything but the unreserved characters is escaped, so
-    /// a `+` or `&` in the prompt arrives intact whichever way the app decodes its query. Claude cuts the
-    /// prompt at roughly 14,000 characters.
-    public static func coworkURL(prompt: String) -> URL {
-        let query = prompt.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
-        return URL(string: "claude://cowork/new?q=" + query)!  // cannot fail: the query is fully escaped
     }
 }
 
