@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 import FragmentsCore
 import Observation
 
@@ -9,7 +9,7 @@ import Observation
 final class ActionHost {
     static let shared = ActionHost()
 
-    /// Every action found, on or off, as Settings lists them.
+    /// Every action found, on or off.
     private(set) var actions: [ActionInfo] = []
     /// Called whenever `actions` changes, so the panel's model follows.
     @ObservationIgnored var onChange: ((_ actions: [ActionInfo]) -> Void)?
@@ -51,7 +51,7 @@ final class ActionHost {
         }
     }
 
-    /// Re-applies your choices after Settings changes them; nothing is compiled.
+    /// Re-applies the stored choices (the `actions` preference) after it changes; nothing is compiled.
     func resolve() {
         actions = ActionCatalog.resolve(found, choices: Prefs.actionChoices)
         onChange?(actions)
@@ -68,11 +68,6 @@ final class ActionHost {
                 Runner.fail("\(run.name) didn't finish. The fragment is kept.", result.output)
             }
         }
-    }
-
-    func revealYours() {
-        try? FileManager.default.createDirectory(at: ActionHost.yoursDirectory, withIntermediateDirectories: true)
-        _ = NSWorkspace.shared.open(ActionHost.yoursDirectory)
     }
 
     private func publish(_ found: [FoundAction], compiler: String) {
