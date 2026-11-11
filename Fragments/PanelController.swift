@@ -29,8 +29,11 @@ final class PanelController {
         panel.hidesOnDeactivate = false  // we never activate; the panel takes key focus on its own
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(rootView: PanelRoot(model: model))
+        // `self?.handle(event) ?? event` would also resurrect the keys handle() swallows (nil means both
+        // "no self" and "consumed"), handing them to AppKit to beep at; keep the two cases apart.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handle(event) ?? event
+            guard let self else { return event }
+            return self.handle(event)
         }
         // Clicking anywhere else dismisses the panel, like Spotlight.
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main)
