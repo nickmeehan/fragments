@@ -100,6 +100,9 @@ final class PanelController {
         case .attach(let fragment):
             hide()
             Runner.attach(fragment, store: model.store)
+        case .openURL(let url):
+            hide()
+            Runner.open(url)
         }
         return nil
     }

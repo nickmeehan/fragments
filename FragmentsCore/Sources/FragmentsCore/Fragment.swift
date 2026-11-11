@@ -1,9 +1,13 @@
 import Foundation
 
-/// What the user asked Fragments to do with a captured thought.
+/// What the user asked Fragments to do with a captured thought. Every case but `keep` also kicks the thought off
+/// somewhere else, and each is chosen by its own capture chord (`Action.chord`).
 public enum Action: String, CaseIterable, Sendable {
     case keep
+    /// Claude Code, in a Rex session Fragments can come back to.
     case claude
+    /// Claude Cowork, in the Claude desktop app. A hand-off: nothing comes back to attach to.
+    case cowork
 }
 
 /// A Claude Code session that was started from a fragment, living in a Rex terminal session.

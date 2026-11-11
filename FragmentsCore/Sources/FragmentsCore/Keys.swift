@@ -9,6 +9,16 @@ public struct Modifiers: OptionSet, Hashable, Sendable {
     public static let shift = Modifiers(rawValue: 2)
     public static let option = Modifiers(rawValue: 4)
     public static let control = Modifiers(rawValue: 8)
+
+    /// The glyphs, in the order the app writes its chords: `⌘⇧⌥⌃`.
+    public var symbols: String {
+        var symbols = ""
+        if contains(.command) { symbols += "⌘" }
+        if contains(.shift) { symbols += "⇧" }
+        if contains(.option) { symbols += "⌥" }
+        if contains(.control) { symbols += "⌃" }
+        return symbols
+    }
 }
 
 /// A keystroke as the model sees it. The app maps NSEvent into this.

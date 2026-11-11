@@ -24,6 +24,16 @@ private func temporaryStore() -> FragmentStore {
         #expect(parsed.session == nil)
     }
 
+    @Test func coworkActionSurvivesTheRoundTripWithoutASession() throws {
+        let original = Fragment(
+            id: "20261111-090000-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            text: "draft the update", action: .cowork)
+        #expect(original.markdown.contains("action: cowork"))
+        let parsed = try #require(Fragment(markdown: original.markdown))
+        #expect(parsed == original)
+        #expect(parsed.session == nil)
+    }
+
     @Test func rejectsFilesWithoutFrontMatter() {
         #expect(Fragment(markdown: "just text") == nil)
         #expect(Fragment(markdown: "---\naction: keep\n---\nno id") == nil)
@@ -74,6 +84,12 @@ private func temporaryStore() -> FragmentStore {
     @Test func rejectsUnknownModifiers() {
         #expect(KeyCombo("hyper+space") == nil)
         #expect(KeyCombo("") == nil)
+    }
+
+    @Test func modifierSymbolsFollowTheOrderChordsAreWrittenIn() {
+        #expect(Modifiers.command.symbols == "⌘")
+        #expect(Modifiers([.control, .option, .shift, .command]).symbols == "⌘⇧⌥⌃")
+        #expect(Modifiers().symbols.isEmpty)
     }
 }
 
@@ -172,6 +188,18 @@ extension KeyCombo {
             ])
     }
 
+    /// `+`, `&` and `?` would each change the prompt under one query decoder or another if left bare.
+    @Test func coworkLinkCarriesThePromptFullyEscaped() throws {
+        let prompt = "Draft the Q2 update: 1+1 & \"why\"?\nsecond line — caf\u{E9}"
+        let url = Launcher.coworkURL(prompt: prompt)
+        let escaped =
+            "Draft%20the%20Q2%20update%3A%201%2B1%20%26%20%22why%22%3F%0A"
+            + "second%20line%20%E2%80%94%20caf%C3%A9"
+        #expect(url.absoluteString == "claude://cowork/new?q=" + escaped)
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.queryItems == [URLQueryItem(name: "q", value: prompt)])
+    }
+
     @Test func shellQuoting() {
         #expect("it's".shellQuoted == "'it'\\''s'")
     }
@@ -212,6 +240,34 @@ extension KeyCombo {
         #expect(session.folder == "/tmp/proj")
         #expect(UUID(uuidString: session.claudeSessionID) != nil)
         #expect(try model.store.all().first?.session == session)
+    }
+
+    @Test func coworkChordKeepsTheFragmentAndOpensTheLink() throws {
+        let model = makeModel()
+        model.draft = "plan the offsite"
+        let link = try #require(URL(string: "claude://cowork/new?q=plan%20the%20offsite"))
+        #expect(model.handle(.enter([.command, .option])) == .openURL(link))
+        let saved = try #require(try model.store.all().first)
+        #expect(saved.text == "plan the offsite")
+        #expect(saved.action == .cowork)
+        #expect(saved.session == nil)
+        #expect(model.draft.isEmpty)
+    }
+
+    /// One chord per action is what lets a new kickoff be added without touching the others.
+    @Test func everyActionHasItsOwnCommandChord() {
+        let chords = Action.allCases.map(\.chord)
+        #expect(Set(chords).count == chords.count)
+        #expect(chords.allSatisfy { $0.contains(.command) })
+        #expect(Action.allCases.map(\.hint) == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork"])
+    }
+
+    @Test func commandChordNoActionOwnsLeavesTheDraftAlone() throws {
+        let model = makeModel()
+        model.draft = "not yet"
+        #expect(model.handle(.enter([.command, .control])) == .handled)
+        #expect(model.draft == "not yet")
+        #expect(try model.store.all().isEmpty)
     }
 
     @Test func typingPassesThroughInCapture() {
@@ -280,6 +336,18 @@ extension KeyCombo {
         #expect(model.handle(.enter([])) == .handled)
         #expect(model.handle(.enter(.command)) == .handled)
         #expect(model.mode == .list)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.handle(.enter([.command, .option])) == .handled)
+        #expect(model.mode == .list)
+    }
+
+    /// The Cowork link reports no session, so there is nothing to attach to: the fragment opens as a note.
+    @Test func coworkFragmentsOpenAsNotes() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "handed off", action: .cowork))
+        model.showList()
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .detail("20260101-000001-0000"))
     }
 
     @Test func sessionFragmentsAttach() throws {

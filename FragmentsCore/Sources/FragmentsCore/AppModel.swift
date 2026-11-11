@@ -20,6 +20,8 @@ public final class AppModel {
         case startDictation
         case launch(Fragment)
         case attach(Fragment)
+        /// Hand the thought to another app through its link.
+        case openURL(URL)
     }
 
     public private(set) var mode: Mode = .capture
@@ -83,10 +85,22 @@ public final class AppModel {
         case .escape:
             return .close
         case .enter(let modifiers) where modifiers.contains(.command):
-            guard let fragment = commit(action: modifiers.contains(.shift) ? .claude : .keep) else { return .close }
-            return fragment.action == .claude ? .launch(fragment) : .close
+            // A ⌘↩ chord no action owns is swallowed: the draft stays put and AppKit gets nothing to beep at.
+            guard let action = Action.allCases.first(where: { $0.chord == modifiers }) else { return .handled }
+            guard let fragment = commit(action: action) else { return .close }
+            return kickoff(fragment)
         default:
             return .ignored
+        }
+    }
+
+    /// How the shell starts a saved fragment's action. One arm per kickoff: `.launch` for a session Fragments
+    /// can come back to, `.openURL` for a hand-off to another app.
+    private func kickoff(_ fragment: Fragment) -> Command {
+        switch fragment.action {
+        case .keep: .close
+        case .claude: .launch(fragment)
+        case .cowork: .openURL(Launcher.coworkURL(prompt: fragment.text))
         }
     }
 
@@ -127,9 +141,9 @@ public final class AppModel {
         return .handled
     }
 
-    /// Esc, ⌘↩ and ⌘⇧↩ save the edit and return to the list; the editor has no use for the capture chords.
+    /// Esc and every capture chord save the edit and return to the list; the editor has no other use for them.
     private func handleDetail(_ key: Key, id: Fragment.ID) -> Command {
-        guard key == .escape || key == .enter(.command) || key == .enter([.command, .shift]) else { return .ignored }
+        guard key == .escape || Action.allCases.contains(where: { key == .enter($0.chord) }) else { return .ignored }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if var fragment = fragments.first(where: { $0.id == id }), fragment.text != text, !text.isEmpty {
             fragment.text = text
@@ -159,5 +173,30 @@ public final class AppModel {
         try? store.trash(fragments[selection])
         reload()
         selection = min(selection, max(fragments.count - 1, 0))
+    }
+}
+
+// MARK: Capture chords
+
+extension Action {
+    /// The modifiers that, held with ↩ in capture, choose this action. A new kickoff takes a free chord here;
+    /// capture, the detail editor and the footer all read it from this one place.
+    public var chord: Modifiers {
+        switch self {
+        case .keep: .command
+        case .claude: [.command, .shift]
+        case .cowork: [.command, .option]
+        }
+    }
+
+    /// The chord as the capture footer shows it: `⌘⌥↩ Cowork`.
+    public var hint: String {
+        let name =
+            switch self {
+            case .keep: "keep"
+            case .claude: "Rex"
+            case .cowork: "Cowork"
+            }
+        return chord.symbols + "↩ " + name
     }
 }

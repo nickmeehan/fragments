@@ -26,9 +26,19 @@ enum Shell {
     }
 }
 
-/// Starts and re-opens Claude Code sessions for fragments in Rex.
+/// Starts and re-opens Claude Code sessions for fragments in Rex, and hands the other kickoffs to their apps.
 @MainActor
 enum Runner {
+    /// Hands a kickoff's link to the app that answers its scheme: the Claude desktop app for Cowork. The
+    /// fragment is already saved, so a Mac without that app loses nothing.
+    static func open(_ url: URL) {
+        guard !NSWorkspace.shared.open(url) else { return }
+        fail(
+            "Fragments could not hand the fragment off.",
+            "Nothing on this Mac opened the \(url.scheme ?? "")://… link; its app may not be installed. "
+                + "The fragment is kept.")
+    }
+
     static func launch(_ fragment: Fragment, store: FragmentStore) {
         guard let session = fragment.session else { return }
         let contents = Launcher.startScript(
