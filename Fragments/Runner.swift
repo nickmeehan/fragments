@@ -62,8 +62,16 @@ enum Runner {
         show(id)
     }
 
+    /// Selecting can fail while the session runs fine (no app client, a stale one beside the live one, Remote
+    /// Control off), so Rex comes forward regardless and the alert says why the session isn't on top.
     private static func show(_ sessionID: String) {
-        check(Shell.run(Launcher.rexSelect(sessionID: sessionID)), "Rex could not show the session.")
+        let client = Launcher.appClientID(in: Shell.run(Launcher.rexClients()).output)
+        let selected = Shell.run(Launcher.rexSelect(sessionID: sessionID, client: client))
+        guard selected.status != 0 else { return }
+        if let rex = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.superlogical.rex") {
+            NSWorkspace.shared.openApplication(at: rex, configuration: NSWorkspace.OpenConfiguration())
+        }
+        fail("The session is running in Rex, but Fragments could not bring it to the front.", selected.output)
     }
 
     private static func write(_ contents: String, for fragment: Fragment, store: FragmentStore) -> URL? {

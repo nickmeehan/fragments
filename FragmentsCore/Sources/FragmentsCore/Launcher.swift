@@ -55,7 +55,8 @@ public enum Launcher {
     }
 
     // MARK: Rex (Superlogical)
-    // Verified against Rex Beta 0.1.0 (1853) on 2026-11-09 — see docs/decisions.md.
+    // Verified against Rex Beta 0.1.0 (1853) on 2026-11-09, the client listing against (1925) on 2026-11-10 —
+    // see docs/decisions.md.
 
     /// Starts a session that runs the script through zsh's login environment, and prints the session as JSON.
     public static func rexNew(label: String, folder: String, script: URL) -> [String] {
@@ -70,16 +71,37 @@ public enum Launcher {
         ["rex", "session", "inspect", label, "--json"]
     }
 
-    /// Shows the session in the Rex app. `rex focus` only moves focus inside a session. Needs Remote Control
+    /// Lists Rex's connected clients as JSON; the app is one of them.
+    public static func rexClients() -> [String] {
+        ["rex", "client", "list", "--json"]
+    }
+
+    /// Shows the session in the Rex app. `rex focus` only moves focus inside a session. Names the app client
+    /// when known, so a stale lost client never makes Rex's default target ambiguous. Needs Remote Control
     /// on in Rex's settings; Rex says so when it is off.
-    public static func rexSelect(sessionID: String) -> [String] {
-        ["rex", "do", "session.select", "session_id=\(sessionID)"]
+    public static func rexSelect(sessionID: String, client: String? = nil) -> [String] {
+        ["rex"] + (client.map { ["-C", $0] } ?? []) + ["do", "session.select", "session_id=\(sessionID)"]
     }
 
     /// The `session_id` in `rex new --json` or `rex session inspect --json` output. A regex, not a JSON parse,
     /// because the login shell the app runs it through may print noise around it.
     public static func sessionID(in output: String) -> String? {
         output.firstMatch(of: #/"session_id"\s*:\s*"([^"]+)"/#).map { String($0.1) }
+    }
+
+    /// The `client_id` of the live Rex app in `rex client list --json` output; nil when none is connected.
+    /// A real parse, because kind and state are sibling keys a regex can't tie to one client; the shell noise
+    /// around the JSON is dropped by keeping only the outermost braces.
+    public static func appClientID(in output: String) -> String? {
+        guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}"), start < end,
+            let root = try? JSONSerialization.jsonObject(with: Data(output[start...end].utf8)) as? [String: Any],
+            let clients = root["clients"] as? [[String: Any]]
+        else { return nil }
+        let live = clients.first { client in
+            let info = client["info"] as? [String: Any]
+            return info?["kind"] as? String == "app" && client["connection_state"] as? String == "connected"
+        }
+        return live?["client_id"] as? String
     }
 }
 
