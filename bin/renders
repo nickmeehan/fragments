@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Renders every panel screen with the app's own SwiftUI from the fragments and actions in fixtures/: capture, ⌘K, the
+# list, ⌘, Actions with each action's view, detail. The real screens, for Nick, an agent or CI to look at.
+#   bin/renders                 tmp/renders/head/*.png
+#   bin/renders --against REF   also tmp/renders/base/*.png from REF (a worktree, built there), and
+#                               tmp/renders/summary.md naming each screen that changed, appeared or went
+# Same machine, same fixtures: a screen nobody changed comes out byte-identical, so every difference is the change.
+# Needs a logged-in desktop; keeps the display awake itself (asleep, every image is blank).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+out=$root/tmp/renders
+against=""
+if [ "${1:-}" = "--against" ]; then against=${2:?usage: bin/renders [--against REF]}; fi
+caffeinate -du -w $$ > /dev/null 2>&1 &  # until this script exits
+
+# Builds the tree in $1 and renders it into $2.
+render() {
+  local tree=$1 into=$2 fixtures=$out/fixtures
+  (cd "$tree" && bin/setup && xcodebuild -project Fragments.xcodeproj -scheme Fragments -configuration Debug \
+    -derivedDataPath build/DerivedData -destination platform=macOS,arch=arm64 -quiet build)
+  # One fixed path for both renders, so what a broken action's compiler prints matches too.
+  rm -rf "$fixtures" "$into"
+  mkdir -p "$out"
+  cp -R "$root/fixtures" "$fixtures"
+  # Choices in memory and no rex: rendering never touches a preference or starts a session. A caret that doesn't
+  # blink keeps the screens with a text field identical from one render to the next.
+  open -n -W --env FRAGMENTS_DIR="$fixtures" --env FRAGMENTS_CHOICES_IN_MEMORY=1 --env FRAGMENTS_NO_DICTATION=1 \
+    --env FRAGMENTS_REX=/nonexistent "$tree/build/DerivedData/Build/Products/Debug/Fragments.app" \
+    --args --snapshot "$into" -dictation NO \
+    -NSTextInsertionPointBlinkPeriodOn 100000000 -NSTextInsertionPointBlinkPeriodOff 1
+  if [ -e "$into/error.txt" ]; then cat "$into/error.txt" >&2; exit 1; fi
+}
+
+summarize() {
+  local changed="" added="" removed="" name
+  for png in "$out"/head/*.png; do
+    name=$(basename "$png" .png)
+    if [ ! -e "$out/base/$name.png" ]; then added+=" \`$name\`"
+    elif ! cmp -s "$png" "$out/base/$name.png"; then changed+=" \`$name\`"; fi
+  done
+  for png in "$out"/base/*.png; do
+    name=$(basename "$png" .png)
+    [ -e "$out/head/$name.png" ] || removed+=" \`$name\`"
+  done
+  echo "**Renders against \`$against\`**"
+  echo
+  if [ -z "$changed$added$removed" ]; then echo "No screen changed."; return; fi
+  [ -z "$changed" ] || echo "- Changed:$changed"
+  [ -z "$added" ] || echo "- New:$added"
+  [ -z "$removed" ] || echo "- Gone:$removed"
+  echo
+  echo "Each is a PNG under the same name in \`head/\` and \`base/\`. Look at every one: a change nobody meant is a regression."
+}
+
+render "$root" "$out/head"
+if [ -n "$against" ]; then
+  tree=$out/base-tree
+  git worktree remove --force "$tree" 2>/dev/null || rm -rf "$tree"
+  git worktree add --detach --quiet "$tree" "$against"
+  render "$tree" "$out/base"
+  git worktree remove --force "$tree"
+  summarize | tee "$out/summary.md"
+fi
+ls "$out/head"
