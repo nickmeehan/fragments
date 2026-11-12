@@ -14,3 +14,40 @@ jobs:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
       - run: bin/ci
+  ui:
+    # The app itself, driven: XCUITests press real keys (bin/ci --ui), then bin/renders images every panel screen and
+    # compares it with the PR's base. The renders are an artifact and a PR comment names the screens that changed, so
+    # an agent without a Mac sees the real screens too: gh run download <run id> -n renders.
+    runs-on: macos-latest # swap for a Blacksmith macOS runner label here
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # bin/renders --against builds the base in a worktree
+      - run: brew install xcodegen
+      # XCUITest synthesizes key presses; on a runner nobody is there to approve that.
+      - run: sudo automationmodetool enable-automationmode-without-authentication
+      - run: bin/ci --ui
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: build/DerivedData/Logs/Test
+      - run: bin/renders ${{ github.event_name == 'pull_request' && format('--against origin/{0}', github.base_ref) || '' }}
+      - id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: renders
+          path: |
+            tmp/renders/head
+            tmp/renders/base
+            tmp/renders/summary.md
+      - if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          { cat tmp/renders/summary.md; echo; echo "[Renders]($ARTIFACT) · \`gh run download $GITHUB_RUN_ID -n renders\`"; } > tmp/comment.md
+          gh pr comment ${{ github.event.pull_request.number }} --body-file tmp/comment.md --edit-last --create-if-none
