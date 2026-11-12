@@ -105,7 +105,8 @@ final class PanelController {
             Runner.attach(fragment, store: model.store)
         case .start(let run):
             hide()
-            ActionHost.shared.start(run)
+            let id = run.input.fragment.id
+            ActionHost.shared.start(run) { [model] session in model.started(id, session: session) }
         }
         return nil
     }

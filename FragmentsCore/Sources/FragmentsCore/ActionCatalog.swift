@@ -63,18 +63,31 @@ public struct ActionInfo: Identifiable, Equatable, Sendable {
     public var hint: String {
         (chord?.symbols ?? "") + " " + name
     }
+
+    /// Open, run or launch; nil until it has compiled and answered its manifest.
+    public var kind: ActionType? {
+        manifest.flatMap { ActionType(rawValue: $0.type) }
+    }
 }
 
-/// What the shell runs when a chord starts an action: `<program> start`, with the input on stdin.
+/// What the shell runs: `<program> start` when a chord starts an action, `<program> attach` when ↩ in the list comes
+/// back to a launch. The input goes on stdin.
 public struct ActionRun: Equatable, Sendable {
     public var name: String
     public var program: URL
+    public var verb: ActionVerb
     public var input: ActionInput
+    /// A launch's start prints the session to keep; the shell reads it and hands it to `AppModel.started`.
+    public var returnsSession: Bool
 
-    public init(name: String, program: URL, input: ActionInput) {
+    public init(
+        name: String, program: URL, verb: ActionVerb = .start, input: ActionInput, returnsSession: Bool = false
+    ) {
         self.name = name
         self.program = program
+        self.verb = verb
         self.input = input
+        self.returnsSession = returnsSession
     }
 }
 

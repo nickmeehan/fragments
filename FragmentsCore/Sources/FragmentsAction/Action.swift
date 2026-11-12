@@ -1,7 +1,7 @@
 import Foundation
 
 /// Something to do with a captured thought, chosen by a chord in the capture panel. Write one as a type with
-/// `@main` that conforms to `OpenAction` or `RunAction`; the protocol is its interaction type. Fragments compiles
+/// `@main` that conforms to `OpenAction`, `RunAction` or `LaunchAction`; the protocol is its interaction type. Fragments compiles
 /// the folder it lives in and runs it as its own program, so a crash or a hang stays in the action.
 public protocol Action {
     /// What the capture footer shows beside the chord: `⌘⌥↩ Cowork`.
@@ -21,6 +21,13 @@ public protocol RunAction: Action {
     func run(_ fragment: Fragment) throws
 }
 
+/// Starts something to come back to. The chord calls `start`; ↩ on the fragment's row in the list calls `attach` with
+/// the session `start` returned, which Fragments keeps in the fragment's file.
+public protocol LaunchAction: Action {
+    func start(_ fragment: Fragment) throws -> Session
+    func attach(_ fragment: Fragment, to session: Session) throws
+}
+
 /// A key combination written the way Settings writes hotkeys: `cmd+option+return`, `cmd+r`, `cmd+1`.
 /// Fragments checks it when it loads the action, so a typo shows up in Settings rather than here.
 public struct Chord: Equatable, Sendable, ExpressibleByStringLiteral {
@@ -33,22 +40,34 @@ public struct Chord: Equatable, Sendable, ExpressibleByStringLiteral {
 
 /// The interaction types, as the manifest names them.
 public enum ActionType: String, Codable, Sendable {
-    case open, run
+    case open, run, launch
 }
 
 // MARK: Entry points
 
 extension OpenAction {
     public static func main() {
-        ActionProgram.main(Self.self, type: .open) { action, fragment in
+        ActionProgram.main(Self.self, type: .open) { action, _, fragment in
             try ActionProgram.open(action.link(for: fragment))
+            return nil
         }
     }
 }
 
 extension RunAction {
     public static func main() {
-        ActionProgram.main(Self.self, type: .run) { action, fragment in try action.run(fragment) }
+        ActionProgram.main(Self.self, type: .run) { action, _, fragment in
+            try action.run(fragment)
+            return nil
+        }
+    }
+}
+
+extension LaunchAction {
+    public static func main() {
+        ActionProgram.main(Self.self, type: .launch) { action, verb, fragment in
+            try ActionProgram.launch(action, verb, fragment)
+        }
     }
 }
 

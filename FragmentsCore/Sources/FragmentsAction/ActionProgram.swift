@@ -25,15 +25,30 @@ public struct Manifest: Codable, Equatable, Sendable {
     }
 }
 
-/// What Fragments sends on stdin when a chord starts an action: `<program> start`.
+/// What Fragments asks of an action's program, with an `ActionInput` on stdin. Only a launch action attaches.
+public enum ActionVerb: String, Codable, Sendable {
+    case start, attach
+}
+
+/// What Fragments sends on stdin when a chord starts an action (`<program> start`), or when ↩ in the list comes
+/// back to a launch (`<program> attach`).
 public struct ActionInput: Codable, Equatable, Sendable {
     public var fragment: Fragment
-    /// Only the values you changed in Settings; every other setting keeps the default the action declares.
+    /// Only the values you changed; every other setting keeps the default the action declares.
     public var settings: [String: String]
 
     public init(fragment: Fragment, settings: [String: String] = [:]) {
         self.fragment = fragment
         self.settings = settings
+    }
+}
+
+/// What a launch action prints after `start`: the session Fragments keeps so ↩ can come back to it.
+public struct LaunchResult: Codable, Equatable, Sendable {
+    public var session: Session
+
+    public init(session: Session) {
+        self.session = session
     }
 }
 
@@ -63,32 +78,50 @@ enum ActionProgram {
         Manifest(name: A.name, chord: A.chord.rawValue, type: type.rawValue, settings: Settings.specs(of: A()))
     }
 
-    /// Answers one verb. Pure apart from `perform`, so tests drive it without a process.
+    /// Answers one verb. Pure apart from `perform`, so tests drive it without a process. `perform` returns what to
+    /// print, if anything.
     static func respond<A: Action>(
         to verb: String?, input: () -> Data, as action: A.Type, type: ActionType,
-        perform: (A, Fragment) throws -> Void
+        perform: (A, ActionVerb, Fragment) throws -> Data?
     ) throws -> Data? {
-        switch verb {
-        case "manifest":
-            return try ActionWire.encoder.encode(manifest(of: A.self, type: type))
-        case "start":
-            let request: ActionInput
-            do {
-                request = try ActionWire.decoder.decode(ActionInput.self, from: input())
-            } catch {
-                throw Failure(description: "The input from Fragments couldn't be read: \(error)")
-            }
-            let action = A()
-            Settings.fill(action, from: request.settings)
-            try perform(action, request.fragment)
-            return nil
-        default:
+        if verb == "manifest" { return try ActionWire.encoder.encode(manifest(of: A.self, type: type)) }
+        guard let verb = verb.flatMap(ActionVerb.init(rawValue:)) else {
             throw Failure(
-                description: "usage: \(CommandLine.arguments.first ?? "action") manifest | start < input.json")
+                description:
+                    "usage: \(CommandLine.arguments.first ?? "action") manifest | start < input.json | attach < input.json"
+            )
+        }
+        guard verb == .start || type == .launch else {
+            throw Failure(description: "Only a launch action can attach; \(A.name) hands the thought off and is done.")
+        }
+        let request: ActionInput
+        do {
+            request = try ActionWire.decoder.decode(ActionInput.self, from: input())
+        } catch {
+            throw Failure(description: "The input from Fragments couldn't be read: \(error)")
+        }
+        let action = A()
+        Settings.fill(action, from: request.settings)
+        return try perform(action, verb, request.fragment)
+    }
+
+    /// A launch's two verbs: `start` prints the session it began, `attach` gets it back.
+    static func launch<A: LaunchAction>(_ action: A, _ verb: ActionVerb, _ fragment: Fragment) throws -> Data? {
+        switch verb {
+        case .start:
+            return try ActionWire.encoder.encode(LaunchResult(session: action.start(fragment)))
+        case .attach:
+            guard let session = fragment.session else {
+                throw Failure(description: "Nothing to attach to: fragment \(fragment.id) has no session.")
+            }
+            try action.attach(fragment, to: session)
+            return nil
         }
     }
 
-    static func main<A: Action>(_ action: A.Type, type: ActionType, perform: (A, Fragment) throws -> Void) {
+    static func main<A: Action>(
+        _ action: A.Type, type: ActionType, perform: (A, ActionVerb, Fragment) throws -> Data?
+    ) {
         do {
             let output = try respond(
                 to: CommandLine.arguments.dropFirst().first,

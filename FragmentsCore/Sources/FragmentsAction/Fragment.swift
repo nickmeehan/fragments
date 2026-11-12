@@ -1,15 +1,14 @@
 import Foundation
 
-/// A Claude Code session that was started from a fragment, living in a Rex terminal session.
-public struct Session: Equatable, Sendable {
-    /// Rex session label.
-    public var name: String
-    public var claudeSessionID: String
-    public var folder: String
+/// What a launch action hands back so Fragments can return to what it started. Saved in the fragment's front matter.
+public struct Session: Codable, Equatable, Sendable {
+    /// The action's own handle on what it started. For Rex, the Claude session id.
+    public var id: String
+    /// Where it runs, when that means anything.
+    public var folder: String?
 
-    public init(name: String, claudeSessionID: String, folder: String) {
-        self.name = name
-        self.claudeSessionID = claudeSessionID
+    public init(id: String, folder: String? = nil) {
+        self.id = id
         self.folder = folder
     }
 }
@@ -55,10 +54,8 @@ public struct Fragment: Equatable, Identifiable, Sendable {
     public var markdown: String {
         var head = ["id: \(id)", "created: \(createdAt.formatted(.iso8601))", "action: \(action)"]
         if let session {
-            head += [
-                "session: \(session.name)", "claude_session: \(session.claudeSessionID)",
-                "folder: \(session.folder)",
-            ]
+            head.append("session: \(session.id)")
+            if let folder = session.folder { head.append("folder: \(folder)") }
         }
         return "---\n" + head.joined(separator: "\n") + "\n---\n\n" + text + "\n"
     }
@@ -78,21 +75,18 @@ public struct Fragment: Equatable, Identifiable, Sendable {
         createdAt = fields["created"].flatMap { try? Date($0, strategy: .iso8601) } ?? .distantPast
         text = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         action = fields["action"].flatMap { $0.isEmpty ? nil : $0 } ?? "keep"
-        if let name = fields["session"] {
-            session = Session(
-                name: name, claudeSessionID: fields["claude_session"] ?? "", folder: fields["folder"] ?? "")
-        } else {
-            session = nil
-        }
+        // Before launch actions, Rex wrote its label as `session` and the id it needs as `claude_session`.
+        let written = { (key: String) in fields[key].flatMap { $0.isEmpty ? nil : $0 } }
+        session = (written("claude_session") ?? written("session")).map { Session(id: $0, folder: written("folder")) }
     }
 }
 
 // MARK: On the wire
 
-/// What an action sees of a fragment. The session stays out until launch actions exist; it is Rex's alone today.
+/// What an action sees of a fragment. The session is there once a launch action has started one, so `attach` has it.
 extension Fragment: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, created, text, action
+        case id, created, text, action, session
     }
 
     public init(from decoder: any Decoder) throws {
@@ -101,7 +95,8 @@ extension Fragment: Codable {
             id: try container.decode(String.self, forKey: .id),
             createdAt: try container.decode(Date.self, forKey: .created),
             text: try container.decode(String.self, forKey: .text),
-            action: try container.decode(String.self, forKey: .action))
+            action: try container.decode(String.self, forKey: .action),
+            session: try container.decodeIfPresent(Session.self, forKey: .session))
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -110,5 +105,6 @@ extension Fragment: Codable {
         try container.encode(createdAt, forKey: .created)
         try container.encode(text, forKey: .text)
         try container.encode(action, forKey: .action)
+        try container.encodeIfPresent(session, forKey: .session)
     }
 }

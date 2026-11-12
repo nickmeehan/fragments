@@ -58,15 +58,22 @@ final class ActionHost {
     }
 
     /// Runs the action's program on a saved fragment. The panel is already gone; the fragment is already saved, so
-    /// a failure only costs the hand-off, and the alert says why.
-    func start(_ run: ActionRun) {
+    /// a failure only costs the hand-off, and the alert says why. A launch's start hands its session to `started`.
+    func start(_ run: ActionRun, started: @escaping @MainActor @Sendable (Session) -> Void) {
         Task.detached(priority: .userInitiated) {
             let input = (try? ActionWire.encoder.encode(run.input)) ?? Data()
-            let result = Shell.run([run.program.path, "start"], input: input, timeout: 10)
-            guard result.status != 0 else { return }
-            await MainActor.run {
-                Runner.fail("\(run.name) didn't finish. The fragment is kept.", result.output)
+            let result = Shell.run([run.program.path, run.verb.rawValue], input: input, timeout: 10)
+            guard result.status == 0 else {
+                await Runner.fail("\(run.name) didn't finish. The fragment is kept.", result.output)
+                return
             }
+            guard run.returnsSession else { return }
+            guard let session = ActionBuild.session(in: result.output) else {
+                await Runner.fail(
+                    "\(run.name) started, but didn't say what, so ↩ in the list can't come back to it.", result.output)
+                return
+            }
+            await started(session)
         }
     }
 

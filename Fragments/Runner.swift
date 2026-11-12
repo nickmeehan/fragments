@@ -52,29 +52,34 @@ enum Shell {
 enum Runner {
     static func launch(_ fragment: Fragment, store: FragmentStore) {
         guard let session = fragment.session else { return }
-        let contents = Launcher.startScript(
-            prompt: fragment.text, prefs: Prefs.launch, sessionID: session.claudeSessionID)
+        let contents = Launcher.startScript(prompt: fragment.text, prefs: Prefs.launch, sessionID: session.id)
         guard let script = write(contents, for: fragment, store: store) else { return }
-        start(session, script: script)
+        start(fragment, in: folder(of: session), script: script)
     }
 
     /// Brings the session forward. A session that is gone (reboot, closed) is rebuilt around
     /// `claude --resume`, so the conversation is never lost.
     static func attach(_ fragment: Fragment, store: FragmentStore) {
         guard let session = fragment.session else { return }
-        let found = Shell.run(Launcher.rexInspect(label: session.name))
+        let found = Shell.run(Launcher.rexInspect(label: Launcher.label(for: fragment)))
         if found.status == 0, let id = Launcher.sessionID(in: found.output) {
             show(id)
             return
         }
-        let resume = Launcher.resumeScript(folder: session.folder, sessionID: session.claudeSessionID)
+        let resume = Launcher.resumeScript(folder: folder(of: session), sessionID: session.id)
         guard let script = write(resume, for: fragment, store: store) else { return }
-        start(session, script: script)
+        start(fragment, in: folder(of: session), script: script)
+    }
+
+    /// Rex's sessions always record a folder; the project folder covers one written without.
+    private static func folder(of session: Session) -> String {
+        session.folder ?? Prefs.launch.folder
     }
 
     /// `rex new` prints the new session's id; `session.select` then shows it in the app.
-    private static func start(_ session: Session, script: URL) {
-        let created = Shell.run(Launcher.rexNew(label: session.name, folder: session.folder, script: script))
+    private static func start(_ fragment: Fragment, in folder: String, script: URL) {
+        let created = Shell.run(
+            Launcher.rexNew(label: Launcher.label(for: fragment), folder: folder, script: script))
         guard check(created, "Rex could not start the session.") else { return }
         guard let id = Launcher.sessionID(in: created.output) else {
             fail("Rex did not report the new session's id.", created.output)

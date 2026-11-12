@@ -11,7 +11,7 @@ private func temporaryStore() -> FragmentStore {
 
 @Suite struct FragmentTests {
     @Test func markdownRoundTripWithSession() throws {
-        let session = Session(name: "frag-1", claudeSessionID: "abc-123", folder: "/tmp/proj")
+        let session = Session(id: "abc-123", folder: "/tmp/proj")
         let original = Fragment(
             id: "20261106-224512-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000),
             text: "look into: the thing\n\nsecond paragraph", action: "claude", session: session)
@@ -43,18 +43,35 @@ private func temporaryStore() -> FragmentStore {
         #expect(try #require(Fragment(markdown: "---\nid: x\naction:\n---\n\nhello\n")).action == "keep")
     }
 
-    /// Actions see id, date, text and action. The session is Rex's until launch actions exist.
-    @Test func theWireCarriesTheFragmentWithoutItsSession() throws {
-        let session = Session(name: "frag-1", claudeSessionID: "abc", folder: "/p")
-        let fragment = Fragment(
+    /// Files written before launch actions: Rex kept its label in `session` and the id it needs in `claude_session`.
+    /// The id survives; the label is rebuilt from the fragment id, and the next save writes the new shape.
+    @Test func aRexFileFromBeforeLaunchActionsKeepsItsClaudeSession() throws {
+        let old = "---\nid: x\naction: claude\nsession: frag-x\nclaude_session: abc-123\nfolder: /p\n---\n\nhi\n"
+        let parsed = try #require(Fragment(markdown: old))
+        #expect(parsed.session == Session(id: "abc-123", folder: "/p"))
+        #expect(parsed.markdown.contains("session: abc-123\nfolder: /p\n"))
+        #expect(!parsed.markdown.contains("claude_session"))
+        #expect(try #require(Fragment(markdown: parsed.markdown)) == parsed)
+    }
+
+    @Test func aSessionNeedNotHaveAFolder() throws {
+        let original = Fragment(id: "x", text: "hi", action: "linear", session: Session(id: "ENG-42"))
+        #expect(!original.markdown.contains("folder:"))
+        #expect(try #require(Fragment(markdown: original.markdown)).session == Session(id: "ENG-42"))
+    }
+
+    /// Actions see id, date, text and action, plus the session once a launch has started one, so attach has it.
+    @Test func theWireCarriesTheSessionOnlyWhenThereIsOne() throws {
+        var fragment = Fragment(
             id: "20261111-090000-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000), text: "a\nb",
-            action: "claude", session: session)
-        let json = String(decoding: try ActionWire.encoder.encode(fragment), as: UTF8.self)
+            action: "cowork")
+        let plain = String(decoding: try ActionWire.encoder.encode(fragment), as: UTF8.self)
         #expect(
-            json == #"{"action":"claude","created":"2027-01-15T08:00:00Z","id":"20261111-090000-00ff","text":"a\nb"}"#)
-        var withoutSession = fragment
-        withoutSession.session = nil
-        #expect(try ActionWire.decoder.decode(Fragment.self, from: Data(json.utf8)) == withoutSession)
+            plain == #"{"action":"cowork","created":"2027-01-15T08:00:00Z","id":"20261111-090000-00ff","text":"a\nb"}"#)
+        fragment.session = Session(id: "s-1", folder: "/p")
+        let launched = try ActionWire.encoder.encode(fragment)
+        #expect(String(decoding: launched, as: UTF8.self).contains(#""session":{"folder":"\/p","id":"s-1"}"#))
+        #expect(try ActionWire.decoder.decode(Fragment.self, from: launched) == fragment)
     }
 
     @Test func rejectsFilesWithoutFrontMatter() {
@@ -144,6 +161,10 @@ private func temporaryStore() -> FragmentStore {
         #expect(!script.contains("--model"))
         #expect(!script.contains("--effort"))
         #expect(!script.contains("--permission-mode"))
+    }
+
+    @Test func aFragmentsRexSessionIsNamedAfterIt() {
+        #expect(Launcher.label(for: Fragment(id: "20261111-090000-00ff", text: "x")) == "frag-20261111-090000-00ff")
     }
 
     @Test func rexSessionIsLabelledAndRunsTheScript() {
@@ -271,9 +292,8 @@ private func temporaryStore() -> FragmentStore {
             return
         }
         let session = try #require(fragment.session)
-        #expect(session.name == "frag-\(fragment.id)")
         #expect(session.folder == "/tmp/proj")
-        #expect(UUID(uuidString: session.claudeSessionID) != nil)
+        #expect(UUID(uuidString: session.id) != nil)
         #expect(try model.store.all().first?.session == session)
     }
 
@@ -424,7 +444,7 @@ private func temporaryStore() -> FragmentStore {
 
     @Test func sessionFragmentsAttach() throws {
         let model = makeModel()
-        let session = Session(name: "frag-x", claudeSessionID: "sid", folder: "/p")
+        let session = Session(id: "sid", folder: "/p")
         try model.store.save(Fragment(id: "20260101-000001-0000", text: "agent", action: "claude", session: session))
         model.showList()
         guard case .attach(let fragment) = model.handle(.char("a", [])) else {
@@ -432,6 +452,73 @@ private func temporaryStore() -> FragmentStore {
             return
         }
         #expect(fragment.session == session)
+    }
+
+    /// Everything the Actions view meets: Cowork bundled; Post yours and broken; Remind yours with a setting of each
+    /// kind; Standup off; Ticket a launch. In order: cowork, post, remind, standup, ticket.
+    private func makeFullModel() -> AppModel {
+        let model = makeModel()
+        func yours(_ id: String, _ build: FoundAction.Build) -> FoundAction {
+            FoundAction(id: id, origin: .yours, program: URL(filePath: "/cache/yours/\(id)/action"), build: build)
+        }
+        let settings = [
+            SettingSpec(key: "list", label: "List", kind: .text, defaultValue: "Inbox"),
+            SettingSpec(key: "notify", label: "Notify when done", kind: .toggle, defaultValue: "false"),
+            SettingSpec(key: "effort", label: "Effort", kind: .choice, choices: ["low", "high"], optional: true),
+        ]
+        model.actions = ActionCatalog.resolve(
+            [
+                FoundAction(
+                    id: "cowork", origin: .bundled, program: URL(filePath: "/cache/bundled/cowork/action"),
+                    build: .built(Manifest(name: "Cowork", chord: "cmd+option+return", type: "open"))),
+                yours("post", .failed("Post.swift:12: cannot find 'send' in scope")),
+                yours("remind", .built(Manifest(name: "Remind", chord: "cmd+r", type: "run", settings: settings))),
+                yours("standup", .built(Manifest(name: "Standup", chord: "cmd+u", type: "run"))),
+                yours("ticket", .built(Manifest(name: "Ticket", chord: "cmd+t", type: "launch"))),
+            ],
+            choices: ["remind": ActionChoice(settings: ["list": "Errands"]), "standup": ActionChoice(on: false)])
+        return model
+    }
+
+    @Test func aLaunchChordSavesTheFragmentAndKeepsTheSessionItReturns() throws {
+        let model = makeFullModel()
+        model.draft = "fix the login bug"
+        guard case .start(let run) = model.handle(.command(KeyCombo(modifiers: .command, key: "t"))) else {
+            Issue.record("expected start")
+            return
+        }
+        #expect(run.verb == .start)
+        #expect(run.returnsSession)
+        let saved = try #require(try model.store.all().first)
+        #expect(saved.action == "ticket")
+        #expect(saved.session == nil)
+        model.started(saved.id, session: Session(id: "ENG-42"))
+        #expect(try model.store.all().first?.session == Session(id: "ENG-42"))
+    }
+
+    @Test func enterOnALaunchedFragmentAttaches() throws {
+        let model = makeFullModel()
+        let session = Session(id: "ENG-42", folder: "/w")
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: session))
+        model.showList()
+        guard case .start(let run) = model.handle(.enter([])) else {
+            Issue.record("expected attach")
+            return
+        }
+        #expect(run.verb == .attach)
+        #expect(!run.returnsSession)
+        #expect(run.name == "Ticket")
+        #expect(run.input.fragment.session == session)
+    }
+
+    /// Its folder deleted, a launch still opens: as a note, with the session kept in the file.
+    @Test func aLaunchWhoseActionIsGoneOpensAsANote() throws {
+        let model = makeFullModel()
+        try model.store.save(
+            Fragment(id: "20260101-000001-0000", text: "bug", action: "gone", session: Session(id: "ENG-42")))
+        model.showList()
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .detail("20260101-000001-0000"))
     }
 
     @Test func newFromListStartsCapture() {

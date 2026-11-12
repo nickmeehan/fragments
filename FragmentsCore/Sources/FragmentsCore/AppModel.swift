@@ -20,7 +20,7 @@ public final class AppModel {
         case startDictation
         case launch(Fragment)
         case attach(Fragment)
-        /// Run an action's program on a saved fragment.
+        /// Run an action's program on a saved fragment: `start`, or `attach` to a launch.
         case start(ActionRun)
     }
 
@@ -69,6 +69,15 @@ public final class AppModel {
         fragments = (try? store.all()) ?? []
     }
 
+    /// A launch action answered its start: keep the session on the fragment, so ↩ in the list comes back to it.
+    public func started(_ id: Fragment.ID, session: Session) {
+        // ponytail: reads the whole folder to find one file; a lookup by id if the folder ever gets large
+        guard var fragment = (try? store.all())?.first(where: { $0.id == id }) else { return }
+        fragment.session = session
+        try? store.save(fragment)
+        if mode == .list { reload() }
+    }
+
     public func handle(_ key: Key) -> Command {
         switch mode {
         case .capture: return handleCapture(key)
@@ -84,8 +93,7 @@ public final class AppModel {
         guard !text.isEmpty else { return nil }
         var fragment = Fragment(text: text, action: action)
         if action == AppModel.rex {
-            fragment.session = Session(
-                name: "frag-\(fragment.id)", claudeSessionID: UUID().uuidString.lowercased(), folder: prefs.folder)
+            fragment.session = Session(id: UUID().uuidString.lowercased(), folder: prefs.folder)
         }
         try? store.save(fragment)
         draft = ""
@@ -119,7 +127,8 @@ public final class AppModel {
         guard let action = actions.first(where: { $0.on && $0.chord == chord }) else { return nil }
         guard let fragment = commit(action: action.id) else { return .close }
         let input = ActionInput(fragment: fragment, settings: action.settings)
-        return .start(ActionRun(name: action.name, program: action.program, input: input))
+        return .start(
+            ActionRun(name: action.name, program: action.program, input: input, returnsSession: action.kind == .launch))
     }
 
     private func handleList(_ key: Key) -> Command {
@@ -180,11 +189,19 @@ public final class AppModel {
         pendingHint = ""
     }
 
+    /// A launched fragment goes back to what it started; anything else opens in the editor, including a launch
+    /// whose action is gone.
     private func open(_ index: Int) -> Command {
         guard fragments.indices.contains(index) else { return .handled }
         let fragment = fragments[index]
         selection = index
-        if fragment.session != nil { return .attach(fragment) }
+        if fragment.session != nil {
+            if fragment.action == AppModel.rex { return .attach(fragment) }
+            if let action = actions.first(where: { $0.id == fragment.action && $0.kind == .launch }) {
+                let input = ActionInput(fragment: fragment, settings: action.settings)
+                return .start(ActionRun(name: action.name, program: action.program, verb: .attach, input: input))
+            }
+        }
         draft = fragment.text
         mode = .detail(fragment.id)
         return .handled

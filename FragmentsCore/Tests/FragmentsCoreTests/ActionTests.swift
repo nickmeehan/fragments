@@ -27,7 +27,32 @@ private func respond(
     _ verb: String?, _ input: ActionInput? = nil, perform: (Remind, Fragment) throws -> Void = { _, _ in }
 ) throws -> Data? {
     let data = try input.map { try ActionWire.encoder.encode($0) } ?? Data("nope".utf8)
-    return try ActionProgram.respond(to: verb, input: { data }, as: Remind.self, type: .run, perform: perform)
+    return try ActionProgram.respond(
+        to: verb, input: { data }, as: Remind.self, type: .run,
+        perform: { action, _, fragment in
+            try perform(action, fragment)
+            return nil
+        })
+}
+
+/// What `Ticket.attach` was handed, for the one test that checks it.
+nonisolated(unsafe) private var attachedSessions: [String] = []
+
+/// A launch action, the way someone would write one: it starts a session and can come back to it.
+private struct Ticket: LaunchAction {
+    static let name = "Ticket"
+    static let chord: Chord = "cmd+t"
+
+    @Setting("Folder", kind: .folder) var folder = "/work"
+
+    func start(_ fragment: Fragment) throws -> Session { Session(id: "T-\(fragment.text.count)", folder: folder) }
+    func attach(_ fragment: Fragment, to session: Session) throws { attachedSessions.append(session.id) }
+}
+
+private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
+    let data = try ActionWire.encoder.encode(ActionInput(fragment: fragment))
+    return try ActionProgram.respond(
+        to: verb, input: { data }, as: Ticket.self, type: .launch, perform: ActionProgram.launch)
 }
 
 @Suite struct ActionProgramTests {
@@ -88,6 +113,31 @@ private func respond(
         #expect(throws: Refused.self) {
             try respond("start", input) { _, _ in throw Refused() }
         }
+    }
+
+    @Test func aLaunchPrintsTheSessionItStarted() throws {
+        let output = try #require(try launch("start", sample))
+        #expect(
+            try ActionWire.decoder.decode(LaunchResult.self, from: output).session
+                == Session(id: "T-10", folder: "/work"))
+        #expect(ActionProgram.manifest(of: Ticket.self, type: .launch).type == "launch")
+    }
+
+    @Test func attachGetsTheSessionBack() throws {
+        var started = sample
+        started.session = Session(id: "T-7")
+        attachedSessions = []
+        #expect(try launch("attach", started) == nil)
+        #expect(attachedSessions == ["T-7"])
+    }
+
+    @Test func attachWithoutASessionSaysSo() {
+        #expect(throws: ActionProgram.Failure.self) { try launch("attach", sample) }
+    }
+
+    /// Open and run actions hand the thought off; there is nothing to come back to.
+    @Test func onlyALaunchActionAttaches() {
+        #expect(throws: ActionProgram.Failure.self) { try respond("attach", ActionInput(fragment: sample)) }
     }
 
     @Test func inputRoundTripsThroughTheWire() throws {
@@ -203,10 +253,10 @@ private func respond(
     @Test func aManifestFromANewerFragmentsIsRefusedNotMisread() {
         var newer = found("a")
         newer.build = .built(Manifest(protocol: 2, name: "A", chord: "cmd+r", type: "run"))
-        let actions = ActionCatalog.resolve([newer, found("b", chord: "cmd+k", type: "launch")], choices: [:])
+        let actions = ActionCatalog.resolve([newer, found("b", chord: "cmd+j", type: "schedule")], choices: [:])
         #expect(actions.map(\.on) == [false, false])
         #expect(actions[0].problem == "It needs a newer Fragments (interface 2).")
-        #expect(actions[1].problem == "This version of Fragments can't run “launch” actions yet.")
+        #expect(actions[1].problem == "This version of Fragments can't run “schedule” actions yet.")
     }
 
     @Test func buildingAndFailedActionsAreListedButOff() {
@@ -227,6 +277,13 @@ private func respond(
             [found("remind")], choices: ["remind": ActionChoice(settings: ["model": "opus"])])
         #expect(actions.first?.settings == ["model": "opus"])
         #expect(actions.first?.hint == "⌘R Remind")
+    }
+
+    @Test func launchActionsAreAKindTheCatalogKnows() {
+        let actions = ActionCatalog.resolve([found("ticket", chord: "cmd+t", type: "launch")], choices: [:])
+        #expect(actions.first?.kind == .launch)
+        #expect(actions.first?.on == true)
+        #expect(actions.first?.problem == nil)
     }
 
     @Test func choicesAreStoredAsCompactJSON() throws {
@@ -268,6 +325,12 @@ private func respond(
         #expect(stamp != ActionBuild.stamp(compiler: "swift 6.1", sources: ["lib", "action"]))
         #expect(stamp != ActionBuild.stamp(compiler: "swift 6.0", sources: ["lib", "action changed"]))
         #expect(stamp != ActionBuild.stamp(compiler: "swift 6.0", sources: ["lib", "action", "more"]))
+    }
+
+    @Test func aLaunchsSessionIsReadThroughLoginShellNoise() {
+        let output = "zprofile says hi\n{\"session\":{\"folder\":\"/p\",\"id\":\"T-1\"}}\n"
+        #expect(ActionBuild.session(in: output) == Session(id: "T-1", folder: "/p"))
+        #expect(ActionBuild.session(in: "no json here") == nil)
     }
 
     @Test func theManifestIsReadThroughLoginShellNoise() {

@@ -31,9 +31,18 @@ public enum ActionBuild {
 
     /// The manifest in `<program> manifest` output, ignoring anything the login shell printed around it.
     public static func manifest(in output: String) -> Manifest? {
+        decode(Manifest.self, in: output)
+    }
+
+    /// The session in a launch action's `<program> start` output, ignoring anything printed around it.
+    public static func session(in output: String) -> Session? {
+        decode(LaunchResult.self, in: output)?.session
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, in output: String) -> T? {
         guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}"), start < end else {
             return nil
         }
-        return try? ActionWire.decoder.decode(Manifest.self, from: Data(output[start...end].utf8))
+        return try? ActionWire.decoder.decode(T.self, from: Data(output[start...end].utf8))
     }
 }
