@@ -19,7 +19,9 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
   `Fragments/ActionHost`).
 - `Fragments/` — the app shell: hotkeys (Carbon), the floating panel, SwiftUI views, Settings,
   Wispr Flow trigger, process execution. Thin; it maps events into Core and performs Core's Commands.
-- `FragmentsUITests/` — one XCUITest smoke flow (`bin/ci --ui`).
+- `FragmentsUITests/` — XCUITests that press real keys in the built app (`bin/ci --ui`).
+- `fixtures/` — the fragments and actions `bin/renders` draws: a note, a Rex launch, a Cowork hand-off, a long one; an
+  action with a setting of each kind, and one that doesn't compile.
 - `project.yml` — XcodeGen spec; the .xcodeproj is generated and git-ignored. Never edit the project
   file by hand; add files to disk and regenerate (`bin/setup`).
 - Fragments on disk: `~/.fragments/<id>.md` with YAML-ish front matter; `~/.fragments/actions/<id>/*.swift` are the
@@ -28,15 +30,29 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 
 ## Commands
 
-- `bin/ci` — format, lint, core tests, app build; `bin/ci --ui` adds the UI smoke test
+- `bin/ci` — format, lint, core tests, app build; `bin/ci --ui` adds the UI tests
 - `bin/run [--capture|--list]` — build and relaunch the app
 - `swift test --package-path FragmentsCore` — fast loop for Core
 - `open 'fragments://new?text=hi'` / `open fragments://list` — drive a running app from a shell
-- `open -n build/DerivedData/Build/Products/Debug/Fragments.app --args --snapshot DIR -fragmentsDir FIXTURES -dictation NO`
-  — walk the panel through capture, ⌘K, the list, ⌘, Actions with each action's own view, and detail, imaging each
-  into DIR as a PNG, then quit. Needs no Screen Recording grant, but the display must be awake (`caffeinate -u`).
-  Seed FIXTURES with a few `.md` fragments, and `actions/<id>/*.swift` folders to see actions.
+- `bin/renders [--against REF]` — every panel screen drawn by the app itself from `fixtures/` (capture, ⌘K, the list,
+  ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's into `base/` and the
+  screens that differ in `summary.md`. Unchanged screens are byte-identical. Uses the app's `--snapshot DIR` mode.
+- `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩ and ↩ with a harmless prompt (Nick's Mac only)
 - Red build? Use the fix-ci skill.
+
+## Verifying a change
+
+Run each layer your change can break, cheapest first, and say in the PR what you ran and saw.
+
+- `bin/ci`: logic, every keystroke in `AppModel`, each bundled action against a stand-in. Every change.
+- `bin/ci --ui`: the real app with real key presses (capture, list, hotkey, ⌘K, ⌘,, launch → attach, Rex against a
+  stand-in). Any change to `Fragments/`, a view or an action.
+- `bin/renders --against origin/main`: open every changed PNG. A change someone can see goes in front of Nick as
+  these renders, never as a mock-up; a screen that changed and shouldn't have is a regression.
+- CI runs all three on every PR (the `ui` job) and comments the changed screens. Without a Mac (a cloud session):
+  push, `gh pr checks --watch`, then `gh run download <run id> -n renders -D tmp/renders` and look.
+- Rex, Claude Code, Cowork and Wispr Flow exist only on Nick's Mac. A change to how Rex is driven: `bin/check-rex`
+  there, or ask Nick to run it.
 
 ## Judgment (what tooling can't check)
 
