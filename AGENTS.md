@@ -8,22 +8,23 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 
 - `FragmentsCore/` — Swift package, zero dependencies, pure logic: `FragmentStore` (the ~/.fragments folder),
   `AppModel` (the panel state machine), `ActionCatalog` (which actions capture offers), `ActionBuild` (how they
-  compile), `Launcher` (the script and `rex` commands that start sessions), `HintLabels`, `KeyCombo`. Everything here runs under `swift test`
-  in seconds. Put logic here first.
+  compile), `LoginShell` (how the app runs a program with the user's PATH), `HintLabels`, `KeyCombo`. Everything here
+  runs under `swift test` in seconds. Put logic here first.
 - `FragmentsCore/Sources/FragmentsAction/` — what every action imports: `Fragment`, `Session`, the
   `OpenAction`/`RunAction`/`LaunchAction` protocols, `@Setting`, the JSON both sides speak. Foundation only: the app
   ships it as source and compiles it with the user's `swiftc`, so it must build on its own. Changing it changes a
   public interface (`Manifest.protocol`).
-- `FragmentsCore/Actions/<id>/` — the bundled actions (Cowork), shaped exactly like a user's
-  `~/.fragments/actions/<id>/`. The app compiles both kinds the same way (`ActionBuild`, `Fragments/ActionHost`).
+- `FragmentsCore/Actions/<id>/` — the bundled actions (Cowork; Rex, which starts Claude Code in a Rex session),
+  shaped exactly like a user's `~/.fragments/actions/<id>/`. The app compiles both kinds the same way (`ActionBuild`,
+  `Fragments/ActionHost`).
 - `Fragments/` — the app shell: hotkeys (Carbon), the floating panel, SwiftUI views, Settings,
   Wispr Flow trigger, process execution. Thin; it maps events into Core and performs Core's Commands.
 - `FragmentsUITests/` — one XCUITest smoke flow (`bin/ci --ui`).
 - `project.yml` — XcodeGen spec; the .xcodeproj is generated and git-ignored. Never edit the project
   file by hand; add files to disk and regenerate (`bin/setup`).
-- Fragments on disk: `~/.fragments/<id>.md` with YAML-ish front matter; `~/.fragments/.sessions/*.sh`
-  are the scripts that start agents; `~/.fragments/actions/<id>/*.swift` are the user's actions, compiled into
-  `~/Library/Caches/Fragments/actions/`. Override with `FRAGMENTS_DIR` (tests do).
+- Fragments on disk: `~/.fragments/<id>.md` with YAML-ish front matter; `~/.fragments/actions/<id>/*.swift` are the
+  user's actions, compiled into `~/Library/Caches/Fragments/actions/`. Override with `FRAGMENTS_DIR` (tests do), and
+  `rex` with `FRAGMENTS_REX` (UI tests point it at a stand-in).
 
 ## Commands
 
