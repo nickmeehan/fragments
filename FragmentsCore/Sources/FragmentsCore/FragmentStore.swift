@@ -1,6 +1,6 @@
 import Foundation
 
-/// The fragments folder: one `<id>.md` per fragment, plus `.sessions/` for the scripts that start agents.
+/// The fragments folder: one `<id>.md` per fragment.
 public struct FragmentStore: Sendable {
     public let directory: URL
 
@@ -10,10 +10,6 @@ public struct FragmentStore: Sendable {
 
     public func url(for fragment: Fragment) -> URL {
         directory.appending(path: "\(fragment.id).md")
-    }
-
-    public func scriptURL(for fragment: Fragment) -> URL {
-        directory.appending(path: ".sessions/\(fragment.id).sh")
     }
 
     /// Newest first. A missing folder is an empty list, not an error.
@@ -30,14 +26,6 @@ public struct FragmentStore: Sendable {
     public func save(_ fragment: Fragment) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try fragment.markdown.write(to: url(for: fragment), atomically: true, encoding: .utf8)
-    }
-
-    @discardableResult
-    public func writeScript(_ contents: String, for fragment: Fragment) throws -> URL {
-        let url = scriptURL(for: fragment)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try contents.write(to: url, atomically: true, encoding: .utf8)
-        return url
     }
 
     /// Moves the file to the Trash, so a stray `x` is recoverable.

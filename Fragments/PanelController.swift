@@ -16,7 +16,7 @@ final class PanelController {
 
     init() {
         let store = FragmentStore(directory: Prefs.fragmentsDirectory)
-        model = AppModel(store: store, prefs: Prefs.launch)
+        model = AppModel(store: store)
         panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 400), styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
@@ -45,7 +45,6 @@ final class PanelController {
     }
 
     func showCapture(text: String = "") {
-        model.prefs = Prefs.launch
         model.beginCapture(text: text)
         show()
         startDictationSoon()
@@ -53,7 +52,6 @@ final class PanelController {
     }
 
     func showList() {
-        model.prefs = Prefs.launch
         model.showList()
         show()
     }
@@ -97,12 +95,6 @@ final class PanelController {
             hide()
         case .startDictation:
             startDictationSoon()
-        case .launch(let fragment):
-            hide()
-            Runner.launch(fragment, store: model.store)
-        case .attach(let fragment):
-            hide()
-            Runner.attach(fragment, store: model.store)
         case .start(let run):
             hide()
             let id = run.input.fragment.id

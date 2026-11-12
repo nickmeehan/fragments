@@ -2,10 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage(Prefs.fragmentsDir) private var fragmentsDir = Prefs.Default.fragmentsDir
-    @AppStorage(Prefs.projectFolder) private var projectFolder = Prefs.Default.projectFolder
-    @AppStorage(Prefs.model) private var model = ""
-    @AppStorage(Prefs.effort) private var effort = ""
-    @AppStorage(Prefs.permissionMode) private var permissionMode = ""
     @AppStorage(Prefs.newHotKey) private var newHotKey = Prefs.Default.newHotKey
     @AppStorage(Prefs.listHotKey) private var listHotKey = Prefs.Default.listHotKey
     @AppStorage(Prefs.dictation) private var dictation = true
@@ -14,17 +10,6 @@ struct SettingsView: View {
         Form {
             Section("Fragments") {
                 TextField("Folder", text: $fragmentsDir)
-            }
-            Section("Claude Code") {
-                TextField("Project folder", text: $projectFolder)
-                TextField("Model", text: $model, prompt: Text("default"))
-                Picker("Effort", selection: $effort) {
-                    Text("default").tag("")
-                    ForEach(["low", "medium", "high", "xhigh", "max"], id: \.self) { Text($0).tag($0) }
-                }
-                TextField("Permission mode", text: $permissionMode, prompt: Text("default"))
-                Text("Sessions open in Rex (Superlogical). Remote Control must be on in Rex's settings.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Hotkeys") {
                 TextField("New fragment", text: $newHotKey)

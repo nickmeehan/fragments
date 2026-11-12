@@ -124,13 +124,12 @@ public struct ActionRun: Equatable, Sendable {
 /// every chord to one action.
 public enum ActionCatalog {
     /// Bundled actions arrive off unless they are listed here; one of yours arrives on.
-    public static let onByDefault: Set<String> = ["cowork"]
+    public static let onByDefault: Set<String> = ["cowork", "rex"]
 
     /// Chords no action may take, with what owns them.
     public static let reserved: [KeyCombo: String] = {
         var owners: [KeyCombo: String] = [
             KeyCombo(modifiers: .command, key: "return"): "keep",
-            KeyCombo(modifiers: [.command, .shift], key: "return"): "Rex",
             KeyCombo(modifiers: [.command, .shift], key: "z"): "the editor",
         ]
         for key in ["a", "c", "v", "x", "z"] { owners[KeyCombo(modifiers: .command, key: key)] = "the editor" }

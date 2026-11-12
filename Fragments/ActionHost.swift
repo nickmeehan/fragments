@@ -66,17 +66,24 @@ final class ActionHost {
             let input = (try? ActionWire.encoder.encode(run.input)) ?? Data()
             let result = Shell.run([run.program.path, run.verb.rawValue], input: input, timeout: 10)
             guard result.status == 0 else {
-                await Runner.fail("\(run.name) didn't finish. The fragment is kept.", result.output)
+                await ActionHost.fail("\(run.name) didn't finish. The fragment is kept.", result.output)
                 return
             }
             guard run.returnsSession else { return }
             guard let session = ActionBuild.session(in: result.output) else {
-                await Runner.fail(
+                await ActionHost.fail(
                     "\(run.name) started, but didn't say what, so ↩ in the list can't come back to it.", result.output)
                 return
             }
             await started(session)
         }
+    }
+
+    private static func fail(_ message: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.runModal()
     }
 
     func revealYours() {

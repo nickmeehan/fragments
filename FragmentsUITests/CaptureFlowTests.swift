@@ -16,6 +16,8 @@ final class CaptureFlowTests: XCTestCase {
         app.launchEnvironment["FRAGMENTS_DIR"] = folder.path
         app.launchEnvironment["FRAGMENTS_NO_DICTATION"] = "1"
         app.launchEnvironment["FRAGMENTS_CHOICES_IN_MEMORY"] = "1"
+        // Rex runs the stand-in `addFakeRex` writes, never the real one: no test starts a real session or Claude.
+        app.launchEnvironment["FRAGMENTS_REX"] = folder.appending(path: "rex").path
         // `-key value` pairs land in UserDefaults' argument domain, overriding Settings for this launch.
         app.launchArguments = arguments + defaults.flatMap { ["-\($0.key)", $0.value] }
         app.launch()
@@ -74,32 +76,51 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["second thought"].waitForExistence(timeout: 3))
     }
 
-    /// ⌘⇧↩ must record the session in the fragment and write the script Rex will run. Rex itself may be absent
-    /// on the test machine; the app then shows an alert, which the test dismisses.
-    func testClaudeChordWritesSessionScript() throws {
-        let app = launch(defaults: ["projectFolder": folder.path, "effort": "high"])
+    /// A stand-in for `rex` that logs each call to `rex.log` and answers like Rex: a new session, a live one for
+    /// `session inspect`, one connected app, and a select that works.
+    private func addFakeRex() throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fake = folder.appending(path: "rex")
+        try """
+        printf '%s\\n' "$*" >> '\(folder.path)/rex.log'
+        case "$1 $2" in
+        "new "*) echo '{"session_id": "session:new"}' ;;
+        "session inspect") echo '{"session_id": "session:alive"}' ;;
+        "client list") echo '{"clients": [{"client_id": "c1", "info": {"kind": "app"},
+            "connection_state": "connected"}]}' ;;
+        esac
+        """.write(to: fake, atomically: true, encoding: .utf8)
+    }
+
+    /// Rex is the bundled launch action on ⌘⇧↩. Its settings start from the old Settings → Claude Code values, which
+    /// the launch arguments set; the session it starts is kept, and ↩ in the list shows it again.
+    func testRexStartsASessionAndComesBackToIt() throws {
+        try addFakeRex()
+        var app = launch(defaults: ["projectFolder": folder.path, "effort": "high"])
         let editor = app.textViews["draft"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.typeText("start an investigation")
+        editor.typeText("say hello")
+        editor.typeKey("k", modifierFlags: .command)  // wait in ⌘K until Rex has compiled
+        XCTAssertTrue(app.staticTexts["Rex"].waitForExistence(timeout: 90), "Rex should compile and be listed")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
         editor.typeKey(.return, modifierFlags: [.command, .shift])
 
-        let files = waitForMarkdown()
-        XCTAssertEqual(files.count, 1)
-        let id = String(files[0].dropLast(3))
-        let contents = try String(contentsOf: folder.appending(path: files[0]), encoding: .utf8)
-        XCTAssertTrue(contents.contains("action: claude"))
-        // The session is the Claude session id; Rex's label is built from the fragment id, not stored.
+        let file = try XCTUnwrap(waitForMarkdown().first)
+        XCTAssertTrue(waitForFile(file, containing: "folder: \(folder.path)"), "the session should be kept")
+        let contents = try String(contentsOf: folder.appending(path: file), encoding: .utf8)
+        XCTAssertTrue(contents.contains("action: rex"))
         let session = contents.split(separator: "\n").first { $0.hasPrefix("session: ") }?.dropFirst(9)
-        XCTAssertNotNil(session.flatMap { UUID(uuidString: String($0)) }, "session should be a UUID in \(contents)")
-        XCTAssertFalse(contents.contains("claude_session"))
+        XCTAssertNotNil(session.flatMap { UUID(uuidString: String($0)) }, "Claude's session id in \(contents)")
+        let log = try String(contentsOf: folder.appending(path: "rex.log"), encoding: .utf8)
+        XCTAssertTrue(log.hasPrefix("new frag-\(file.dropLast(3)) --cwd \(folder.path) "), log)
+        XCTAssertTrue(log.contains("'--effort' 'high' '--' 'say hello'"), log)
+        XCTAssertTrue(log.hasSuffix("-C c1 do session.select session_id=session:new\n"), log)
 
-        let script = folder.appending(path: ".sessions/\(id).sh")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: script.path))
-        XCTAssertTrue(try String(contentsOf: script, encoding: .utf8).contains("'--effort' 'high'"))
-
-        let alert = app.dialogs.firstMatch
-        if alert.waitForExistence(timeout: 2) { alert.buttons.firstMatch.click() }
+        app = launch(arguments: ["--list"])
+        XCTAssertTrue(app.staticTexts["say hello"].waitForExistence(timeout: 5))
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitForFile("rex.log", containing: "session_id=session:alive"), "↩ should show the session")
     }
 
     // MARK: Actions
@@ -177,7 +198,8 @@ final class CaptureFlowTests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Actions"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Echo"].waitForExistence(timeout: 90), "Echo should compile and be listed")
-        app.typeKey("j", modifierFlags: [])  // Cowork is first, bundled; Echo is yours
+        app.typeKey("j", modifierFlags: [])  // Cowork and Rex are first, bundled; Echo is yours
+        app.typeKey("j", modifierFlags: [])
         app.typeKey(" ", modifierFlags: [])
         XCTAssertTrue(app.staticTexts["off"].waitForExistence(timeout: 3), "space should turn Echo off")
         app.typeKey(" ", modifierFlags: [])

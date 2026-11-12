@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Prefs.register()
+        Prefs.moveClaudeCodeSettingsToRex()
         registerHotKeys()
         ActionHost.shared.refresh()  // compile what changed now, so the first capture has its actions
         NotificationCenter.default.addObserver(

@@ -4,6 +4,7 @@ import Testing
 @testable import Cowork
 @testable import FragmentsAction
 @testable import FragmentsCore
+@testable import Rex
 
 /// An action with one setting of every kind, the way someone would write it in ~/.fragments/actions.
 private struct Remind: RunAction {
@@ -173,6 +174,106 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
     }
 }
 
+/// Rex against a stand-in `rex` (`FRAGMENTS_REX`) that logs what it was asked and answers like Rex Beta 1925. Serial,
+/// because the stand-in is named in the process environment.
+@Suite(.serialized) struct RexTests {
+    private let folder = FileManager.default.temporaryDirectory.appending(path: "rex-test-\(UUID())")
+    private var log: String { (try? String(contentsOf: folder.appending(path: "log"), encoding: .utf8)) ?? "" }
+
+    /// `alive` makes `session inspect` find the session; `select-fails` makes Rex refuse to show it.
+    private func rex(settings: [String: String] = [:], _ flags: String...) throws -> Rex {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for flag in flags { FileManager.default.createFile(atPath: folder.appending(path: flag).path, contents: nil) }
+        let fake = folder.appending(path: "rex")
+        try """
+        cd '\(folder.path)'
+        printf '%s\\n' "$*" >> log
+        case "$1 $2" in
+        "new "*) echo '{"session_id": "session:new"}' ;;
+        "session inspect") [ -e alive ] && echo '{"session_id": "session:alive"}' || { echo not found; exit 3; } ;;
+        "client list") echo '{"clients": [{"client_id": "client:app", "info": {"kind": "app"},
+            "connection_state": "connected"}]}' ;;
+        *) if [ -e select-fails ]; then echo 'Turn on Remote Control'; exit 1; fi ;;
+        esac
+        """.write(to: fake, atomically: true, encoding: .utf8)
+        setenv("FRAGMENTS_REX", fake.path, 1)
+        let rex = Rex()
+        Settings.fill(rex, from: settings)
+        return rex
+    }
+
+    @Test func rexIsALaunchActionOnCommandShiftReturnWithClaudeCodesSettings() {
+        let manifest = ActionProgram.manifest(of: Rex.self, type: .launch)
+        #expect(manifest.name == "Rex")
+        #expect(manifest.chord == "cmd+shift+return")
+        #expect(manifest.settings.map(\.key) == ["folder", "model", "effort", "permissionMode"])
+        #expect(manifest.settings[0].kind == .folder)
+        #expect(manifest.settings[0].defaultValue == "~")
+        #expect(manifest.settings[2].choices == ["low", "medium", "high", "xhigh", "max"])
+    }
+
+    @Test func claudeGetsTheThoughtAfterItsFlags() throws {
+        var fragment = sample
+        fragment.text = "--fix it's\nbroken"
+        #expect(try rex().claude(fragment, sessionID: "sid") == ["claude", "--session-id", "sid", "--", fragment.text])
+        let tuned = try rex(settings: ["model": "opus", "effort": "high", "permissionMode": "plan"])
+        #expect(
+            tuned.claude(fragment, sessionID: "sid") == [
+                "claude", "--session-id", "sid", "--model", "opus", "--effort", "high", "--permission-mode", "plan",
+                "--", fragment.text,
+            ])
+    }
+
+    @Test func theScriptRunsTheCommandInTheFolderThenKeepsAShell() {
+        let script = Rex.script(
+            folder: "/Code/it's here", command: ["claude", "--", "--fix it's\nbroken"], path: "/a b")
+        #expect(
+            script == """
+                export PATH="$PATH":'/a b'
+                cd '/Code/it'\\''s here' || exit 1
+                'claude' '--' '--fix it'\\''s
+                broken'
+                exec "${SHELL:-/bin/zsh}" -l
+                """)
+    }
+
+    @Test func startOpensASessionNamedAfterTheFragmentAndShowsIt() throws {
+        let session = try rex(settings: ["folder": folder.path]).start(sample)
+        #expect(UUID(uuidString: session.id) != nil)
+        #expect(session.folder == folder.path)
+        let calls = log.split(separator: "\n")
+        #expect(calls.first?.hasPrefix("new frag-20261111-090000-00ff --cwd \(folder.path) --shell zsh") == true)
+        #expect(log.contains("'claude' '--session-id' '\(session.id)' '--' 'buy stamps'"))
+        #expect(calls.suffix(2) == ["client list --json", "-C client:app do session.select session_id=session:new"])
+    }
+
+    @Test func attachShowsTheSessionWhileItIsAlive() throws {
+        try rex("alive").attach(sample, to: Session(id: "sid", folder: "/p"))
+        #expect(
+            log.split(separator: "\n") == [
+                "session inspect frag-20261111-090000-00ff --json", "client list --json",
+                "-C client:app do session.select session_id=session:alive",
+            ])
+    }
+
+    @Test func attachResumesTheConversationWhenTheSessionIsGone() throws {
+        try rex().attach(sample, to: Session(id: "sid", folder: folder.path))
+        #expect(log.contains("new frag-20261111-090000-00ff --cwd \(folder.path)"))
+        #expect(log.contains("'claude' '--resume' 'sid'"))
+        #expect(log.hasSuffix("do session.select session_id=session:new\n"))
+    }
+
+    @Test func attachSaysWhyRexWouldNotShowTheSession() throws {
+        let rex = try rex("alive", "select-fails")
+        #expect(throws: Rex.Problem.self) { try rex.attach(sample, to: Session(id: "sid")) }
+        do {
+            try rex.attach(sample, to: Session(id: "sid"))
+        } catch {
+            #expect("\(error)".hasSuffix("Turn on Remote Control\n"))
+        }
+    }
+}
+
 @Suite struct ActionCatalogTests {
     private func found(
         _ id: String, _ origin: FoundAction.Origin = .yours, chord: String = "cmd+r", type: String = "run",
@@ -187,11 +288,11 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
         let actions = ActionCatalog.resolve(
             [
                 found("cowork", .bundled, chord: "cmd+option+return"), found("draft", .bundled, chord: "cmd+1"),
-                found("remind"),
+                found("rex", .bundled, chord: "cmd+shift+return", type: "launch"), found("remind"),
             ],
             choices: [:])
-        #expect(actions.map(\.id) == ["cowork", "draft", "remind"])
-        #expect(actions.map(\.on) == [true, false, true])
+        #expect(actions.map(\.id) == ["cowork", "draft", "rex", "remind"])
+        #expect(actions.map(\.on) == [true, false, true, true])
         #expect(actions.allSatisfy { $0.problem == nil })
     }
 
@@ -230,16 +331,11 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
         #expect(actions.map(\.on) == [true, true])
     }
 
-    @Test func reservedChordsBelongToKeepRexTheEditorAndMacOS() {
+    @Test func reservedChordsBelongToKeepTheEditorAndMacOS() {
         let actions = ActionCatalog.resolve(
-            [
-                found("a", chord: "cmd+return"), found("b", chord: "cmd+shift+return"), found("c", chord: "cmd+v"),
-                found("d", chord: "cmd+q"),
-            ],
-            choices: [:])
-        #expect(actions.map(\.on) == [false, false, false, false])
-        #expect(
-            actions.map(\.problem) == ["keep uses ⌘↩.", "Rex uses ⌘⇧↩.", "the editor uses ⌘V.", "macOS uses ⌘Q."])
+            [found("a", chord: "cmd+return"), found("c", chord: "cmd+v"), found("d", chord: "cmd+q")], choices: [:])
+        #expect(actions.map(\.on) == [false, false, false])
+        #expect(actions.map(\.problem) == ["keep uses ⌘↩.", "the editor uses ⌘V.", "macOS uses ⌘Q."])
     }
 
     @Test func aChordNeedsCommandAndHasToParse() {
