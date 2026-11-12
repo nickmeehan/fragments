@@ -24,10 +24,11 @@ render() {
   mkdir -p "$out"
   cp -R "$root/fixtures" "$fixtures"
   # Choices in memory and no rex: rendering never touches a preference or starts a session. A caret that doesn't
-  # blink keeps the screens with a text field identical from one render to the next.
+  # blink, and overlay scroll bars (a runner has no trackpad, so it draws legacy ones that vary by a pixel or two),
+  # keep every screen identical from one render to the next.
   open -n -W --env FRAGMENTS_DIR="$fixtures" --env FRAGMENTS_CHOICES_IN_MEMORY=1 --env FRAGMENTS_NO_DICTATION=1 \
     --env FRAGMENTS_REX=/nonexistent "$tree/build/DerivedData/Build/Products/Debug/Fragments.app" \
-    --args --snapshot "$into" -dictation NO \
+    --args --snapshot "$into" -dictation NO -AppleShowScrollBars WhenScrolling \
     -NSTextInsertionPointBlinkPeriodOn 100000000 -NSTextInsertionPointBlinkPeriodOff 1
   if [ -e "$into/error.txt" ]; then cat "$into/error.txt" >&2; exit 1; fi
 }
