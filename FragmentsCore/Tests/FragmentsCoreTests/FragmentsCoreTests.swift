@@ -137,6 +137,13 @@ private func temporaryStore() -> FragmentStore {
         #expect(KeyCombo("cmd+enter") == KeyCombo(modifiers: .command, key: "return"))
     }
 
+    @Test func aComboIsWrittenTheWaySettingsReadsIt() {
+        let combo = KeyCombo(modifiers: [.control, .command, .shift], key: "r")
+        #expect(combo.written == "cmd+shift+control+r")
+        #expect(KeyCombo(combo.written) == combo)
+        #expect(KeyCombo(modifiers: .command, key: "return").written == "cmd+return")
+    }
+
     @Test func comboSymbolsAreWhatTheFooterShows() {
         #expect(KeyCombo("cmd+option+return")?.symbols == "⌘⌥↩")
         #expect(KeyCombo("cmd+r")?.symbols == "⌘R")
@@ -346,9 +353,12 @@ private func temporaryStore() -> FragmentStore {
         #expect(try model.store.all().isEmpty)
     }
 
-    @Test func theFooterListsKeepRexAndTheActionsThatAreOn() {
-        #expect(
-            makeModelWithActions().captureHints == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork", "⌘R Remind", "esc discard"])
+    @Test func theFooterListsKeepRexTheActionsThatAreOnAndCommandK() {
+        let model = makeModelWithActions()
+        #expect(model.captureHints == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork", "⌘R Remind", "⌘K all", "esc discard"])
+        // When the line is full the last actions drop off; ⌘K and esc always stay.
+        #expect(model.captureHints(actionLimit: 1) == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork", "⌘K all", "esc discard"])
+        #expect(model.captureHints(actionLimit: 0) == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘K all", "esc discard"])
     }
 
     @Test func commandChordNoActionOwnsLeavesTheDraftAlone() throws {
@@ -519,6 +529,135 @@ private func temporaryStore() -> FragmentStore {
         model.showList()
         #expect(model.handle(.enter([])) == .handled)
         #expect(model.mode == .detail("20260101-000001-0000"))
+    }
+
+    @Test func commandKListsTheKickoffsThatAreOnAndSendsTheSelectedOne() throws {
+        let model = makeFullModel()
+        model.draft = "buy stamps"
+        #expect(model.handle(.command(AppModel.kickoffsChord)) == .handled)
+        #expect(model.mode == .kickoffs)
+        #expect(model.kickoffs.map(\.name) == ["Rex", "Cowork", "Remind", "Ticket"])
+        #expect(model.kickoffs.map(\.kind) == [.launch, .open, .run, .launch])
+        #expect(model.handle(.char("r", [])) == .ignored)  // typing goes to the filter field
+        _ = model.handle(.down)
+        model.setKickoffFilter("REM")
+        #expect(model.kickoffs.map(\.name) == ["Remind"])
+        #expect(model.kickoffSelection == 0)
+        guard case .start(let run) = model.handle(.enter([])) else {
+            Issue.record("expected start")
+            return
+        }
+        #expect(run.name == "Remind")
+        #expect(try model.store.all().first?.action == "remind")
+    }
+
+    @Test func escapeFromKickoffsKeepsTheDraft() {
+        let model = makeFullModel()
+        model.draft = "not yet"
+        _ = model.handle(.command(AppModel.kickoffsChord))
+        _ = model.handle(.up)
+        #expect(model.kickoffSelection == 0)
+        for _ in 0..<9 { _ = model.handle(.down) }
+        #expect(model.kickoffSelection == 3)
+        #expect(model.handle(.escape) == .handled)
+        #expect(model.mode == .capture)
+        #expect(model.draft == "not yet")
+    }
+
+    @Test func rexFromKickoffsLaunchesLikeItsChord() throws {
+        let model = makeFullModel()
+        model.draft = "investigate"
+        _ = model.handle(.command(AppModel.kickoffsChord))
+        guard case .launch(let fragment) = model.handle(.enter([])) else {
+            Issue.record("expected launch")
+            return
+        }
+        #expect(fragment.action == AppModel.rex)
+        #expect(fragment.session != nil)
+    }
+
+    @Test func commandCommaInTheListOpensActions() {
+        let model = makeFullModel()
+        model.showList()
+        #expect(model.handle(.command(AppModel.actionsChord)) == .handled)
+        #expect(model.mode == .actions)
+        #expect(model.selectedAction?.id == "cowork")
+        _ = model.handle(.char("j", []))
+        _ = model.handle(.char("j", []))
+        #expect(model.selectedAction?.id == "remind")
+        #expect(model.handle(.char(" ", [])) == .choose("remind", .on(false)))
+        _ = model.handle(.char("j", []))
+        #expect(model.handle(.char(" ", [])) == .choose("standup", .on(true)))
+        #expect(model.handle(.char("o", [])) == .revealActions)
+        #expect(model.handle(.escape) == .handled)
+        #expect(model.mode == .list)
+    }
+
+    @Test func rebindingWaitsForAChordNobodyHas() {
+        let model = makeFullModel()
+        model.showList()
+        _ = model.handle(.command(AppModel.actionsChord))
+        _ = model.handle(.down)
+        _ = model.handle(.down)
+        _ = model.handle(.char("r", []))
+        #expect(model.isRecording)
+        #expect(model.handle(.char("x", [])) == .handled)  // only a ⌘ chord binds
+        #expect(model.handle(.enter([.command, .option])) == .handled)
+        #expect(model.recordingProblem == "⌘⌥↩ is Cowork's. Press another.")
+        #expect(model.handle(.command(AppModel.kickoffsChord)) == .handled)
+        #expect(model.recordingProblem == "⌘K is the kickoff list's. Press another.")
+        #expect(
+            model.handle(.command(KeyCombo(modifiers: [.command, .shift], key: "r")))
+                == .choose("remind", .chord("cmd+shift+r")))
+        #expect(!model.isRecording)
+        _ = model.handle(.char("r", []))
+        #expect(model.handle(.escape) == .handled)
+        #expect(!model.isRecording)
+        #expect(model.mode == .actions)
+    }
+
+    @Test func settingsEditTextFlipSwitchesAndStepThroughMenus() {
+        let model = makeFullModel()
+        model.showList()
+        _ = model.handle(.command(AppModel.actionsChord))
+        _ = model.handle(.down)
+        _ = model.handle(.down)
+        _ = model.handle(.enter([]))
+        #expect(model.mode == .actionSettings("remind"))
+        _ = model.handle(.enter([]))
+        #expect(model.isEditingSetting)
+        #expect(model.settingDraft == "Errands")
+        #expect(model.handle(.char("G", [])) == .ignored)  // typing goes to the field
+        model.settingDraft = "Groceries"
+        #expect(model.handle(.enter([])) == .choose("remind", .setting(key: "list", value: "Groceries")))
+        _ = model.handle(.enter([]))
+        model.settingDraft = "Inbox"  // the default: stored as unset
+        #expect(model.handle(.enter([])) == .choose("remind", .setting(key: "list", value: nil)))
+        _ = model.handle(.enter([]))
+        #expect(model.handle(.escape) == .handled)
+        #expect(!model.isEditingSetting)
+        _ = model.handle(.char("j", []))
+        #expect(model.handle(.enter([])) == .choose("remind", .setting(key: "notify", value: "true")))
+        _ = model.handle(.down)
+        #expect(model.handle(.enter([])) == .choose("remind", .setting(key: "effort", value: "low")))
+        _ = model.handle(.escape)
+        #expect(model.mode == .actions)
+    }
+
+    @Test func aBrokenActionCantBeTurnedOnAndSaysWhy() {
+        let model = makeFullModel()
+        model.showList()
+        _ = model.handle(.command(AppModel.actionsChord))
+        _ = model.handle(.down)
+        #expect(model.selectedAction?.didNotCompile == true)
+        #expect(model.handle(.char(" ", [])) == .handled)
+        _ = model.handle(.char("r", []))
+        #expect(!model.isRecording)
+        _ = model.handle(.enter([]))
+        #expect(model.mode == .actionProblem("post"))
+        #expect(model.handle(.char("o", [])) == .revealActions)
+        _ = model.handle(.escape)
+        #expect(model.mode == .actions)
     }
 
     @Test func newFromListStartsCapture() {

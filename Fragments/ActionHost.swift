@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import FragmentsCore
 import Observation
 
@@ -9,7 +9,7 @@ import Observation
 final class ActionHost {
     static let shared = ActionHost()
 
-    /// Every action found, on or off.
+    /// Every action found, on or off, as ⌘, Actions lists them.
     private(set) var actions: [ActionInfo] = []
     /// Called whenever `actions` changes, so the panel's model follows.
     @ObservationIgnored var onChange: ((_ actions: [ActionInfo]) -> Void)?
@@ -17,6 +17,8 @@ final class ActionHost {
     @ObservationIgnored private var found: [FoundAction] = []
     @ObservationIgnored private var compiler: String?
     @ObservationIgnored private var refreshing = false
+    /// Still listing or compiling; the snapshot tour waits for it so the actions it images exist.
+    var isRefreshing: Bool { refreshing }
     @ObservationIgnored private var refreshAgain = false
 
     /// `~/.fragments/actions`, or under `FRAGMENTS_DIR` when that is set.
@@ -51,7 +53,7 @@ final class ActionHost {
         }
     }
 
-    /// Re-applies the stored choices (the `actions` preference) after it changes; nothing is compiled.
+    /// Re-applies your choices after the Actions view changes them; nothing is compiled.
     func resolve() {
         actions = ActionCatalog.resolve(found, choices: Prefs.actionChoices)
         onChange?(actions)
@@ -75,6 +77,11 @@ final class ActionHost {
             }
             await started(session)
         }
+    }
+
+    func revealYours() {
+        try? FileManager.default.createDirectory(at: ActionHost.yoursDirectory, withIntermediateDirectories: true)
+        _ = NSWorkspace.shared.open(ActionHost.yoursDirectory)
     }
 
     private func publish(_ found: [FoundAction], compiler: String) {

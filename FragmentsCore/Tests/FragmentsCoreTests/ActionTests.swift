@@ -286,6 +286,30 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
         #expect(actions.first?.problem == nil)
     }
 
+    /// The Actions view records a new chord only when nobody else has it.
+    @Test func aChordsOwnerIsAReservedNameOrAnotherActionThatIsOn() {
+        let actions = ActionCatalog.resolve(
+            [found("remind", chord: "cmd+r"), found("standup", chord: "cmd+u")],
+            choices: ["standup": ActionChoice(on: false)])
+        #expect(ActionCatalog.owner(of: KeyCombo("cmd+r")!, among: actions, except: "standup") == "Remind")
+        #expect(ActionCatalog.owner(of: KeyCombo("cmd+r")!, among: actions, except: "remind") == nil)
+        #expect(ActionCatalog.owner(of: KeyCombo("cmd+u")!, among: actions, except: "remind") == nil)  // off
+        #expect(ActionCatalog.owner(of: KeyCombo("cmd+k")!, among: actions, except: "remind") == "the kickoff list")
+        #expect(ActionCatalog.owner(of: KeyCombo("cmd+return")!, among: actions, except: "remind") == "keep")
+    }
+
+    @Test func editsFromTheActionsViewKeepOnlyWhatDiffers() {
+        var choice = ActionChoice()
+        choice.apply(.on(false))
+        choice.apply(.chord("cmd+shift+r"))
+        choice.apply(.setting(key: "list", value: "Errands"))
+        #expect(choice == ActionChoice(on: false, chord: "cmd+shift+r", settings: ["list": "Errands"]))
+        choice.apply(.setting(key: "list", value: ""))
+        #expect(choice.settings == nil)
+        choice.apply(.setting(key: "list", value: nil))
+        #expect(choice.settings == nil)
+    }
+
     @Test func choicesAreStoredAsCompactJSON() throws {
         let choices = ["standup": ActionChoice(on: false, chord: "cmd+shift+u")]
         let json = String(decoding: try ActionWire.encoder.encode(choices), as: UTF8.self)

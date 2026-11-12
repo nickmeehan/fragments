@@ -1,8 +1,9 @@
 import AppKit
 import FragmentsCore
 
-/// `--snapshot DIR`: show each panel mode, image our own window into DIR and quit. Lets an agent look at the UI
-/// without a Screen Recording grant, which macOS waives for a process imaging its own windows.
+/// `--snapshot DIR`: walk the panel through each mode (capture, ⌘K, list, ⌘, Actions and every action's own view,
+/// detail), image our own window into DIR and quit. Lets an agent look at the UI without a Screen Recording grant,
+/// which macOS waives for a process imaging its own windows.
 @MainActor
 enum Snapshot {
     static let sampleText =
@@ -12,11 +13,31 @@ enum Snapshot {
         Task {
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                // The Actions views need the actions compiled; a first build takes a few seconds.
+                for _ in 0..<600 where ActionHost.shared.isRefreshing { try await Task.sleep(for: .milliseconds(200)) }
+                let model = panel.model
                 panel.showCapture(text: sampleText)
                 try await capture("capture", into: directory, panel: panel)
+                _ = model.handle(.command(AppModel.kickoffsChord))
+                try await capture("kickoffs", into: directory, panel: panel)
+                model.setKickoffFilter("co")
+                try await capture("kickoffs-filtered", into: directory, panel: panel)
                 panel.showList()
                 try await capture("list", into: directory, panel: panel)
-                _ = panel.model.handle(.enter([]))
+                _ = model.handle(.command(AppModel.actionsChord))
+                try await capture("actions", into: directory, panel: panel)
+                _ = model.handle(.char("r", []))
+                try await capture("actions-recording", into: directory, panel: panel)
+                _ = model.handle(.escape)
+                // Each action's settings, or why it didn't compile.
+                for action in model.actions {
+                    _ = model.handle(.enter([]))
+                    try await capture("action-\(action.id)", into: directory, panel: panel)
+                    if model.mode != .actions { _ = model.handle(.escape) }
+                    _ = model.handle(.down)
+                }
+                panel.showList()
+                _ = model.handle(.enter([]))
                 try await capture("detail", into: directory, panel: panel)
                 NSApp.terminate(nil)
             } catch {

@@ -1,7 +1,7 @@
 import Foundation
 
-/// A setting the action offers in Settings → Actions. Declare it as a property; Fragments draws a control for it,
-/// keeps what you choose, and fills the property in before your method runs:
+/// A setting the action offers in the panel: ⌘, in the fragments list, then ↩ on the action. Declare it as a
+/// property; Fragments draws a row for it, keeps what you choose, and fills the property in before your method runs:
 ///
 ///     @Setting("Project folder", kind: .folder) var folder = "~"
 ///     @Setting("Model", placeholder: "default") var model: String?

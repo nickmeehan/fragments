@@ -29,7 +29,7 @@ public protocol LaunchAction: Action {
 }
 
 /// A key combination written the way Settings writes hotkeys: `cmd+option+return`, `cmd+r`, `cmd+1`.
-/// Fragments checks it when it loads the action, so a typo shows up in Settings rather than here.
+/// Fragments checks it when it loads the action, so a typo shows up in its Actions view rather than here.
 public struct Chord: Equatable, Sendable, ExpressibleByStringLiteral {
     public let rawValue: String
 

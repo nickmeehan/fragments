@@ -61,6 +61,14 @@ public struct KeyCombo: Hashable, Sendable {
         key = ["enter": "return", "esc": "escape"][last] ?? last
     }
 
+    /// As Settings and the `actions` preference store it, which `init?(_:)` reads back: `cmd+shift+r`.
+    public var written: String {
+        let names: [(Modifiers, String)] = [
+            (.command, "cmd"), (.shift, "shift"), (.option, "option"), (.control, "control"),
+        ]
+        return (names.filter { modifiers.contains($0.0) }.map(\.1) + [key]).joined(separator: "+")
+    }
+
     /// As the footer and Settings show it: `⌘⌥↩`, `⌘R`, `⌘F5`.
     public var symbols: String {
         let glyphs = ["return": "↩", "space": "Space", "tab": "⇥", "delete": "⌫", "escape": "esc"]

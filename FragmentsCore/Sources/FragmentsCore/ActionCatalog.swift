@@ -26,7 +26,7 @@ public struct FoundAction: Equatable, Sendable {
     }
 }
 
-/// What you chose for one action in Settings → Actions. Anything unset falls back to the action's own default,
+/// What you chose for one action in the Actions view. Anything unset falls back to the action's own default,
 /// so only real choices are stored and a new action needs no migration.
 public struct ActionChoice: Codable, Equatable, Sendable {
     public var on: Bool?
@@ -54,7 +54,7 @@ public struct ActionInfo: Identifiable, Equatable, Sendable {
     public var chord: KeyCombo?
     /// Offered in capture. False when you turned it off, and when a problem keeps it off.
     public var on: Bool
-    /// Why it can't be on, in words for Settings.
+    /// Why it can't be on, in words for the Actions view.
     public var problem: String?
     /// Only the values you changed; the action supplies its own defaults for the rest.
     public var settings: [String: String]
@@ -67,6 +67,35 @@ public struct ActionInfo: Identifiable, Equatable, Sendable {
     /// Open, run or launch; nil until it has compiled and answered its manifest.
     public var kind: ActionType? {
         manifest.flatMap { ActionType(rawValue: $0.type) }
+    }
+
+    /// It never answered a manifest: the build failed, and `problem` says how.
+    public var didNotCompile: Bool {
+        manifest == nil && !isBuilding && problem != nil
+    }
+}
+
+extension ActionChoice {
+    /// One edit from the Actions view.
+    public enum Change: Equatable, Sendable {
+        case on(Bool)
+        case chord(String)
+        /// Nil or empty goes back to the action's default.
+        case setting(key: String, value: String?)
+    }
+
+    /// Applies an edit, keeping only what differs from the defaults so the stored JSON stays small.
+    public mutating func apply(_ change: Change) {
+        switch change {
+        case .on(let on):
+            self.on = on
+        case .chord(let chord):
+            self.chord = chord
+        case .setting(let key, let value):
+            var settings = self.settings ?? [:]
+            settings[key] = value.flatMap { $0.isEmpty ? nil : $0 }
+            self.settings = settings.isEmpty ? nil : settings
+        }
     }
 }
 
@@ -106,8 +135,15 @@ public enum ActionCatalog {
         ]
         for key in ["a", "c", "v", "x", "z"] { owners[KeyCombo(modifiers: .command, key: key)] = "the editor" }
         for key in ["q", "w", "h", ","] { owners[KeyCombo(modifiers: .command, key: key)] = "macOS" }
+        owners[KeyCombo(modifiers: .command, key: "k")] = "the kickoff list"
         return owners
     }()
+
+    /// Who already has this chord, for the Actions view while it records a new one: a reserved owner, or another
+    /// action that is on. Nil when it's free.
+    public static func owner(of chord: KeyCombo, among actions: [ActionInfo], except id: String) -> String? {
+        reserved[chord] ?? actions.first { $0.id != id && $0.on && $0.chord == chord }?.name
+    }
 
     /// Bundled actions first, then yours, each in folder order; one of yours replaces a bundled action with the
     /// same id. An earlier action that is on keeps a chord a later one also wants.
