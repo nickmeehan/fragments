@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Drives the real Rex and Claude Code the way ⌘⇧↩ and ↩ in the list do, with a harmless prompt: start a session, attach
+# while it's alive, kill it, attach again (the conversation resumes), kill it. No test reaches these two; this does.
+# Run it on Nick's Mac after changing FragmentsCore/Actions/rex or updating Rex. Needs Rex running with Remote Control
+# on, and Claude Code signed in. The session runs in this checkout, a folder Claude already trusts, at low effort, and
+# is told to use no tools.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+swift build --package-path FragmentsCore --product Rex -q
+program=$(swift build --package-path FragmentsCore --product Rex --show-bin-path)/Rex
+token=fragments-check-$RANDOM
+id=$(date +%Y%m%d-%H%M%S)-c0de
+label=frag-$id
+trap 'rex session kill "$label" > /dev/null 2>&1 || true' EXIT
+# A leading dash, a quote, double quotes and a dollar sign: each must reach Claude as typed.
+prompt="--check it's \"quoted\" \$HOME: reply with exactly $token and nothing else, using no tools"
+
+# Runs the program as the app does: launchd's bare environment, a login zsh, LoginShell.pathLine.
+run() {
+  local session=""
+  if [ -n "${2:-}" ]; then session=",\"session\":{\"id\":\"$2\",\"folder\":\"$root\"}"; fi
+  printf '{"fragment":{"id":"%s","created":"2026-01-01T00:00:00Z","text":"%s","action":"rex"%s},"settings":{"folder":"%s","effort":"low"}}' \
+    "$id" "${prompt//\"/\\\"}" "$session" "$root" |
+    env -i HOME="$HOME" USER="$USER" SHELL=/bin/zsh /bin/zsh -lc \
+      'export PATH="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; "$0" "$1"' \
+      "$program" "$1"
+}
+fail() { echo "✗ $1" >&2; exit 1; }
+sessions() { rex session ls | grep -c "$label" || true; }
+
+started=$(run start) || fail "start: $started"
+sid=$(echo "$started" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+[ -n "$sid" ] || fail "start didn't print a session: $started"
+echo "✓ start returned Claude session $sid in Rex session $label"
+
+transcript=""
+for _ in $(seq 90); do
+  transcript=$(find ~/.claude/projects -name "$sid.jsonl" 2>/dev/null | head -1)
+  [ -n "$transcript" ] && grep '"type":"assistant"' "$transcript" | grep -q "$token" && break
+  sleep 1
+done
+[ -n "$transcript" ] || fail "Claude kept no conversation under $sid (a trust or onboarding prompt in the session?)"
+grep '"type":"assistant"' "$transcript" | grep -q "$token" || fail "Claude didn't answer within 90s: rex capture -s $label"
+grep '"type":"user"' "$transcript" | grep -qF -e "--check it's \\\"quoted\\\" \$HOME" || fail "the prompt arrived changed"
+echo "✓ Claude got the prompt as typed and answered, under the session id start returned"
+
+run attach "$sid" > /dev/null || fail "attach to the live session failed"
+[ "$(sessions)" = 1 ] || fail "attach to a live session started another"
+echo "✓ attach showed the live session"
+
+rex session kill "$label" > /dev/null
+run attach "$sid" > /dev/null || fail "attach after the session was gone failed"
+rex session inspect "$label" --json > /dev/null || fail "attach didn't start the session again"
+for _ in $(seq 30); do rex capture -s "$label" | grep -q "$token" && break; sleep 1; done
+rex capture -s "$label" | grep -q "$token" || fail "the resumed session doesn't show the conversation"
+echo "✓ attach resumed the conversation once Rex had lost the session"
