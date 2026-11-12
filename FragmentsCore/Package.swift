@@ -6,7 +6,12 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.library(name: "FragmentsCore", targets: ["FragmentsCore"])],
     targets: [
-        .target(name: "FragmentsCore"),
-        .testTarget(name: "FragmentsCoreTests", dependencies: ["FragmentsCore"]),
+        // What every action imports. Zero dependencies, Foundation only: the app ships it as source and compiles it
+        // with the user's swiftc, so it must build alone.
+        .target(name: "FragmentsAction"),
+        .target(name: "FragmentsCore", dependencies: ["FragmentsAction"]),
+        // The bundled actions, one folder each, exactly as a folder of yours in ~/.fragments/actions looks.
+        .executableTarget(name: "Cowork", dependencies: ["FragmentsAction"], path: "Actions/cowork"),
+        .testTarget(name: "FragmentsCoreTests", dependencies: ["FragmentsCore", "FragmentsAction", "Cowork"]),
     ]
 )

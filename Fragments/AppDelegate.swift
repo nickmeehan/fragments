@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Prefs.register()
         registerHotKeys()
+        ActionHost.shared.refresh()  // compile what changed now, so the first capture has its actions
         NotificationCenter.default.addObserver(
             self, selector: #selector(prefsChanged), name: UserDefaults.didChangeNotification, object: nil)
         // Launch arguments open the panel without a hotkey: UI tests and `bin/run --capture`.
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func prefsChanged() {
         registerHotKeys()
+        ActionHost.shared.resolve()
     }
 
     private func registerHotKeys() {

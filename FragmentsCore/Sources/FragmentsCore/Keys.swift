@@ -9,22 +9,40 @@ public struct Modifiers: OptionSet, Hashable, Sendable {
     public static let shift = Modifiers(rawValue: 2)
     public static let option = Modifiers(rawValue: 4)
     public static let control = Modifiers(rawValue: 8)
+
+    /// The glyphs, in the order the app writes its chords: `⌘⇧⌥⌃`.
+    public var symbols: String {
+        var symbols = ""
+        if contains(.command) { symbols += "⌘" }
+        if contains(.shift) { symbols += "⇧" }
+        if contains(.option) { symbols += "⌥" }
+        if contains(.control) { symbols += "⌃" }
+        return symbols
+    }
 }
 
 /// A keystroke as the model sees it. The app maps NSEvent into this.
 public enum Key: Equatable, Sendable {
     case char(Character, Modifiers)
     case enter(Modifiers)
+    /// Any other key held with ⌘: an action's chord, or the editor's (⌘A, ⌘V…) when no action owns it.
+    case command(KeyCombo)
     case escape
     case up
     case down
 }
 
-/// A hotkey written the way Settings stores it: `option+space`, `cmd+shift+f`.
-public struct KeyCombo: Equatable, Sendable {
+/// A hotkey written the way Settings stores it: `option+space`, `cmd+shift+f`. Also an action's chord in the
+/// capture panel: `cmd+option+return`, `cmd+r`.
+public struct KeyCombo: Hashable, Sendable {
     public var modifiers: Modifiers
-    /// Lowercase key name: `space`, `a`, `f5`.
+    /// Lowercase key name: `space`, `a`, `f5`, `return`.
     public var key: String
+
+    public init(modifiers: Modifiers, key: String) {
+        self.modifiers = modifiers
+        self.key = key
+    }
 
     public init?(_ string: String) {
         let parts = string.lowercased().split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -40,6 +58,20 @@ public struct KeyCombo: Equatable, Sendable {
             }
         }
         self.modifiers = modifiers
-        key = last
+        key = ["enter": "return", "esc": "escape"][last] ?? last
+    }
+
+    /// As Settings and the `actions` preference store it, which `init?(_:)` reads back: `cmd+shift+r`.
+    public var written: String {
+        let names: [(Modifiers, String)] = [
+            (.command, "cmd"), (.shift, "shift"), (.option, "option"), (.control, "control"),
+        ]
+        return (names.filter { modifiers.contains($0.0) }.map(\.1) + [key]).joined(separator: "+")
+    }
+
+    /// As the footer and Settings show it: `⌘⌥↩`, `⌘R`, `⌘F5`.
+    public var symbols: String {
+        let glyphs = ["return": "↩", "space": "Space", "tab": "⇥", "delete": "⌫", "escape": "esc"]
+        return modifiers.symbols + (glyphs[key] ?? key.uppercased())
     }
 }

@@ -6,17 +6,24 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 
 ## Layout
 
-- `FragmentsCore/` — Swift package, zero dependencies, pure logic: `Fragment` (Markdown file model),
-  `FragmentStore` (the ~/.fragments folder), `AppModel` (the panel state machine), `Launcher` (the script and
-  `rex` commands that start sessions), `HintLabels`, `KeyCombo`. Everything here runs under `swift test`
+- `FragmentsCore/` — Swift package, zero dependencies, pure logic: `FragmentStore` (the ~/.fragments folder),
+  `AppModel` (the panel state machine), `ActionCatalog` (which actions capture offers), `ActionBuild` (how they
+  compile), `Launcher` (the script and `rex` commands that start sessions), `HintLabels`, `KeyCombo`. Everything here runs under `swift test`
   in seconds. Put logic here first.
+- `FragmentsCore/Sources/FragmentsAction/` — what every action imports: `Fragment`, `Session`, the
+  `OpenAction`/`RunAction`/`LaunchAction` protocols, `@Setting`, the JSON both sides speak. Foundation only: the app
+  ships it as source and compiles it with the user's `swiftc`, so it must build on its own. Changing it changes a
+  public interface (`Manifest.protocol`).
+- `FragmentsCore/Actions/<id>/` — the bundled actions (Cowork), shaped exactly like a user's
+  `~/.fragments/actions/<id>/`. The app compiles both kinds the same way (`ActionBuild`, `Fragments/ActionHost`).
 - `Fragments/` — the app shell: hotkeys (Carbon), the floating panel, SwiftUI views, Settings,
   Wispr Flow trigger, process execution. Thin; it maps events into Core and performs Core's Commands.
 - `FragmentsUITests/` — one XCUITest smoke flow (`bin/ci --ui`).
 - `project.yml` — XcodeGen spec; the .xcodeproj is generated and git-ignored. Never edit the project
   file by hand; add files to disk and regenerate (`bin/setup`).
 - Fragments on disk: `~/.fragments/<id>.md` with YAML-ish front matter; `~/.fragments/.sessions/*.sh`
-  are the scripts that start agents. Override with `FRAGMENTS_DIR` (tests do).
+  are the scripts that start agents; `~/.fragments/actions/<id>/*.swift` are the user's actions, compiled into
+  `~/Library/Caches/Fragments/actions/`. Override with `FRAGMENTS_DIR` (tests do).
 
 ## Commands
 
@@ -25,8 +32,9 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 - `swift test --package-path FragmentsCore` — fast loop for Core
 - `open 'fragments://new?text=hi'` / `open fragments://list` — drive a running app from a shell
 - `open -n build/DerivedData/Build/Products/Debug/Fragments.app --args --snapshot DIR -fragmentsDir FIXTURES -dictation NO`
-  — image the capture, list and detail panels into DIR as PNGs, then quit. Needs no Screen Recording
-  grant; seed FIXTURES with a few `.md` fragments first.
+  — walk the panel through capture, ⌘K, the list, ⌘, Actions with each action's own view, and detail, imaging each
+  into DIR as a PNG, then quit. Needs no Screen Recording grant, but the display must be awake (`caffeinate -u`).
+  Seed FIXTURES with a few `.md` fragments, and `actions/<id>/*.swift` folders to see actions.
 - Red build? Use the fix-ci skill.
 
 ## Judgment (what tooling can't check)

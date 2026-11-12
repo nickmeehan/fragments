@@ -81,7 +81,8 @@ before adding one; every dependency is an upgrade burden and another thing an ag
 | Where does behavior go? | On the Core type that owns the knowledge |
 | New keystroke or mode? | `Key`/`Mode`/`Command` in `AppModel`, with a test |
 | New way to run an agent? | `Session.Runner` case + `Launcher` functions + a `Runner` switch arm |
-| New thing to do with a fragment? | `Action` case; the chord maps to it in `handleCapture` |
+| New kickoff (Codex, Reminders…)? | An action, not app code: a folder with one `@main` type conforming to `OpenAction` or `RunAction`, bundled in `FragmentsCore/Actions/<id>/` or yours in `~/.fragments/actions/<id>/`. Its options are `@Setting` properties |
+| New interaction type? | Rare: a protocol and `ActionType` case in `FragmentsAction`, its handling in `ActionCatalog`/`AppModel`, and a `Manifest.currentProtocol` bump only if old actions would be misread |
 | Shell growing decisions? | Move the decision into Core, return a `Command` |
 | "Should I add a package?" | Probably not |
 | "Should I make a Manager/Service?" | No — extension on the owning type |

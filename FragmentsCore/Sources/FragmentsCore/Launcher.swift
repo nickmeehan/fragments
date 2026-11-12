@@ -38,6 +38,11 @@ public enum Launcher {
         return script(folder: prefs.folder, command: command)
     }
 
+    /// The Rex session a fragment's Claude conversation lives in. Derived, so the fragment only stores the id.
+    public static func label(for fragment: Fragment) -> String {
+        "frag-\(fragment.id)"
+    }
+
     /// Re-opens a Claude conversation whose Rex session is gone (reboot, closed).
     public static func resumeScript(folder: String, sessionID: String) -> String {
         script(folder: folder, command: "claude --resume \(sessionID.shellQuoted)")
