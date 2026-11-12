@@ -4,7 +4,8 @@
 #   bin/renders                 tmp/renders/head/*.png
 #   bin/renders --against REF   also tmp/renders/base/*.png from REF (a worktree, built there), and
 #                               tmp/renders/summary.md naming each screen that changed, appeared or went
-# Same machine, same fixtures: a screen nobody changed comes out byte-identical, so every difference is the change.
+# Same machine, same fixtures: a screen nobody changed comes out identical (to a grey level), so a difference is the
+# change.
 # Needs a logged-in desktop; keeps the display awake itself (asleep, every image is blank).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -33,12 +34,23 @@ render() {
   if [ -e "$into/error.txt" ]; then cat "$into/error.txt" >&2; exit 1; fi
 }
 
+# The same screen: identical bytes, or no pixel more than 2 of 255 apart in any channel. An overlay scroll bar fades on
+# its own clock and can land one grey level apart between two renders of the same code; a real change moves far more.
+same() {
+  cmp -s "$1" "$2" && return 0
+  sips -s format bmp "$1" --out "$out/a.bmp" > /dev/null && sips -s format bmp "$2" --out "$out/b.bmp" > /dev/null &&
+    python3 -I -c '
+import sys
+a, b = (open(p, "rb").read() for p in sys.argv[1:])
+sys.exit(len(a) != len(b) or any(abs(x - y) > 2 for x, y in zip(a, b)))' "$out/a.bmp" "$out/b.bmp"
+}
+
 summarize() {
   local changed="" added="" removed="" name
   for png in "$out"/head/*.png; do
     name=$(basename "$png" .png)
     if [ ! -e "$out/base/$name.png" ]; then added+=" \`$name\`"
-    elif ! cmp -s "$png" "$out/base/$name.png"; then changed+=" \`$name\`"; fi
+    elif ! same "$png" "$out/base/$name.png"; then changed+=" \`$name\`"; fi
   done
   for png in "$out"/base/*.png; do
     name=$(basename "$png" .png)

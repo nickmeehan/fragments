@@ -36,7 +36,7 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 - `open 'fragments://new?text=hi'` / `open fragments://list` — drive a running app from a shell
 - `bin/renders [--against REF]` — every panel screen drawn by the app itself from `fixtures/` (capture, ⌘K, the list,
   ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's into `base/` and the
-  screens that differ in `summary.md`. Unchanged screens are byte-identical. Uses the app's `--snapshot DIR` mode.
+  screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's `--snapshot DIR` mode.
 - `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩ and ↩ with a harmless prompt (Nick's Mac only)
 - Red build? Use the fix-ci skill.
 
