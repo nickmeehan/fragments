@@ -12,6 +12,7 @@ let package = Package(
         .target(name: "FragmentsCore", dependencies: ["FragmentsAction"]),
         // The bundled actions, one folder each, exactly as a folder of yours in ~/.fragments/actions looks.
         .executableTarget(name: "Cowork", dependencies: ["FragmentsAction"], path: "Actions/cowork"),
-        .testTarget(name: "FragmentsCoreTests", dependencies: ["FragmentsCore", "FragmentsAction", "Cowork"]),
+        .executableTarget(name: "Rex", dependencies: ["FragmentsAction"], path: "Actions/rex"),
+        .testTarget(name: "FragmentsCoreTests", dependencies: ["FragmentsCore", "FragmentsAction", "Cowork", "Rex"]),
     ]
 )

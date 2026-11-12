@@ -27,8 +27,6 @@ public final class AppModel {
         case handled
         case close
         case startDictation
-        case launch(Fragment)
-        case attach(Fragment)
         /// Run an action's program on a saved fragment: `start`, or `attach` to a launch.
         case start(ActionRun)
         /// Store one edit to an action's choices in the `actions` preference.
@@ -47,18 +45,14 @@ public final class AppModel {
 
     /// Built in: ⌘↩ keeps the thought and does nothing else.
     public static let keep = "keep"
-    /// Rex keeps its own path until it becomes an action; the id stays what fragments on disk already say.
-    public static let rex = "claude"
     public static let kickoffsChord = KeyCombo(modifiers: .command, key: "k")
     public static let actionsChord = KeyCombo(modifiers: .command, key: ",")
-    private static let rexChord = KeyCombo(modifiers: [.command, .shift], key: "return")
 
     public private(set) var mode: Mode = .capture
     public var draft = ""
     public private(set) var fragments: [Fragment] = []
     public private(set) var selection = 0
     public private(set) var pendingHint = ""
-    public var prefs: LaunchPrefs
     /// Every action found, on or off; the shell refreshes it when capture opens.
     public var actions: [ActionInfo] = []
     public let store: FragmentStore
@@ -75,16 +69,15 @@ public final class AppModel {
     public private(set) var isEditingSetting = false
     public var settingDraft = ""
 
-    public init(store: FragmentStore, prefs: LaunchPrefs) {
+    public init(store: FragmentStore) {
         self.store = store
-        self.prefs = prefs
     }
 
     public var hints: [String] {
         HintLabels.labels(count: fragments.count)
     }
 
-    /// The capture footer: keep, Rex, each action that is on, ⌘K, esc.
+    /// The capture footer: keep, each action that is on, ⌘K, esc.
     public var captureHints: [String] {
         captureHints(actionLimit: nil)
     }
@@ -92,17 +85,15 @@ public final class AppModel {
     /// The footer with only the first `actionLimit` actions, for when they don't all fit; ⌘K lists the rest.
     public func captureHints(actionLimit: Int?) -> [String] {
         let hints = actions.filter(\.on).map(\.hint)
-        return ["⌘↩ keep", "⌘⇧↩ Rex"] + hints.prefix(actionLimit ?? hints.count) + ["⌘K all", "esc discard"]
+        return ["⌘↩ keep"] + hints.prefix(actionLimit ?? hints.count) + ["⌘K all", "esc discard"]
     }
 
-    /// What ⌘K offers: Rex, then every action that is on, narrowed to names containing the filter.
+    /// What ⌘K offers: every action that is on, narrowed to names containing the filter.
     public var kickoffs: [Kickoff] {
-        let all =
-            [Kickoff(id: AppModel.rex, name: "Rex", chord: AppModel.rexChord, kind: .launch)]
-            + actions.compactMap { action in
-                guard action.on, let chord = action.chord, let kind = action.kind else { return nil }
-                return Kickoff(id: action.id, name: action.name, chord: chord, kind: kind)
-            }
+        let all = actions.compactMap { action -> Kickoff? in
+            guard action.on, let chord = action.chord, let kind = action.kind else { return nil }
+            return Kickoff(id: action.id, name: action.name, chord: chord, kind: kind)
+        }
         guard !kickoffFilter.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(kickoffFilter) }
     }
@@ -159,10 +150,7 @@ public final class AppModel {
     public func commit(action: String) -> Fragment? {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        var fragment = Fragment(text: text, action: action)
-        if action == AppModel.rex {
-            fragment.session = Session(id: UUID().uuidString.lowercased(), folder: prefs.folder)
-        }
+        let fragment = Fragment(text: text, action: action)
         try? store.save(fragment)
         draft = ""
         return fragment
@@ -177,8 +165,6 @@ public final class AppModel {
         case .enter(.command):
             commit(action: AppModel.keep)
             return .close
-        case .enter([.command, .shift]):
-            return launchRex()
         case .enter(let modifiers) where modifiers.contains(.command):
             // A ⌘↩ chord no action owns is swallowed: the draft stays put and AppKit gets nothing to beep at.
             return start(KeyCombo(modifiers: modifiers, key: "return")) ?? .handled
@@ -207,7 +193,6 @@ public final class AppModel {
             let offered = kickoffs
             guard offered.indices.contains(kickoffSelection) else { return .handled }
             let id = offered[kickoffSelection].id
-            if id == AppModel.rex { return launchRex() }
             return actions.first { $0.id == id }.map { start($0) } ?? .handled
         case .enter:
             break
@@ -215,11 +200,6 @@ public final class AppModel {
             return .ignored  // typing goes to the filter
         }
         return .handled
-    }
-
-    private func launchRex() -> Command {
-        guard let fragment = commit(action: AppModel.rex) else { return .close }
-        return .launch(fragment)
     }
 
     /// Saves the draft for the action that is on for this chord and has the shell run it. Nil when no action
@@ -305,12 +285,11 @@ public final class AppModel {
         guard fragments.indices.contains(index) else { return .handled }
         let fragment = fragments[index]
         selection = index
-        if fragment.session != nil {
-            if fragment.action == AppModel.rex { return .attach(fragment) }
-            if let action = actions.first(where: { $0.id == fragment.action && $0.kind == .launch }) {
-                let input = ActionInput(fragment: fragment, settings: action.settings)
-                return .start(ActionRun(name: action.name, program: action.program, verb: .attach, input: input))
-            }
+        if fragment.session != nil,
+            let action = actions.first(where: { $0.id == fragment.action && $0.kind == .launch })
+        {
+            let input = ActionInput(fragment: fragment, settings: action.settings)
+            return .start(ActionRun(name: action.name, program: action.program, verb: .attach, input: input))
         }
         draft = fragment.text
         mode = .detail(fragment.id)

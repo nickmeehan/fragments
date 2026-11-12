@@ -14,7 +14,7 @@ private func temporaryStore() -> FragmentStore {
         let session = Session(id: "abc-123", folder: "/tmp/proj")
         let original = Fragment(
             id: "20261106-224512-00ff", createdAt: Date(timeIntervalSince1970: 1_800_000_000),
-            text: "look into: the thing\n\nsecond paragraph", action: "claude", session: session)
+            text: "look into: the thing\n\nsecond paragraph", action: "rex", session: session)
         let parsed = try #require(Fragment(markdown: original.markdown))
         #expect(parsed == original)
     }
@@ -43,13 +43,15 @@ private func temporaryStore() -> FragmentStore {
         #expect(try #require(Fragment(markdown: "---\nid: x\naction:\n---\n\nhello\n")).action == "keep")
     }
 
-    /// Files written before launch actions: Rex kept its label in `session` and the id it needs in `claude_session`.
-    /// The id survives; the label is rebuilt from the fragment id, and the next save writes the new shape.
+    /// Files written before launch actions: Rex was `claude`, kept its label in `session` and the id it needs in
+    /// `claude_session`. The id survives; the label is rebuilt from the fragment id, and the next save writes the new
+    /// shape.
     @Test func aRexFileFromBeforeLaunchActionsKeepsItsClaudeSession() throws {
         let old = "---\nid: x\naction: claude\nsession: frag-x\nclaude_session: abc-123\nfolder: /p\n---\n\nhi\n"
         let parsed = try #require(Fragment(markdown: old))
+        #expect(parsed.action == "rex")
         #expect(parsed.session == Session(id: "abc-123", folder: "/p"))
-        #expect(parsed.markdown.contains("session: abc-123\nfolder: /p\n"))
+        #expect(parsed.markdown.contains("action: rex\nsession: abc-123\nfolder: /p\n"))
         #expect(!parsed.markdown.contains("claude_session"))
         #expect(try #require(Fragment(markdown: parsed.markdown)) == parsed)
     }
@@ -152,105 +154,19 @@ private func temporaryStore() -> FragmentStore {
     }
 }
 
-@Suite struct LauncherTests {
-    @Test func startScriptPassesPromptAndFlags() {
-        let prefs = LaunchPrefs(folder: "/Users/me/Code/it's here", model: "opus", effort: "high")
-        let script = Launcher.startScript(prompt: "--fix it's\nbroken", prefs: prefs, sessionID: "sid")
-        #expect(script.contains("cd '/Users/me/Code/it'\\''s here' || exit 1"))
-        let claude = "'claude' '--session-id' 'sid' '--model' 'opus' '--effort' 'high' '--' '--fix it'\\''s\nbroken'"
-        #expect(script.contains(claude))
-        #expect(script.hasPrefix("#!/bin/sh\n"))
-        #expect(script.contains("exec \"${SHELL:-/bin/zsh}\" -l"))
-    }
-
-    @Test func emptyPrefsOmitFlags() {
-        let script = Launcher.startScript(prompt: "x", prefs: LaunchPrefs(folder: "/p"), sessionID: "sid")
-        #expect(!script.contains("--model"))
-        #expect(!script.contains("--effort"))
-        #expect(!script.contains("--permission-mode"))
-    }
-
-    @Test func aFragmentsRexSessionIsNamedAfterIt() {
-        #expect(Launcher.label(for: Fragment(id: "20261111-090000-00ff", text: "x")) == "frag-20261111-090000-00ff")
-    }
-
-    @Test func rexSessionIsLabelledAndRunsTheScript() {
-        let argv = Launcher.rexNew(label: "frag-1", folder: "/p", script: URL(filePath: "/f/.sessions/1.sh"))
-        #expect(
-            argv == [
-                "rex", "new", "frag-1", "--cwd", "/p", "--shell", "zsh", "--keep-open", "--json", "--", "/bin/sh",
-                "/f/.sessions/1.sh",
-            ])
-        #expect(Launcher.rexInspect(label: "frag-1") == ["rex", "session", "inspect", "frag-1", "--json"])
-        #expect(Launcher.rexSelect(sessionID: "session:1") == ["rex", "do", "session.select", "session_id=session:1"])
-    }
-
+@Suite struct LoginShellTests {
     @Test func rexIsOnThePathTheAppBuilds() {
-        #expect(Launcher.pathLine.hasPrefix(#"export PATH="$HOME/Library/Application Support/com.superlogical.rex/"#))
+        #expect(LoginShell.pathLine.hasPrefix(#"export PATH="$HOME/Library/Application Support/com.superlogical.rex/"#))
     }
 
-    @Test func sessionIDIsReadFromRexJSONDespiteShellNoise() {
-        let created = "zprofile noise\n{\n  \"session_id\": \"session:01a1\",\n  \"initial_windows\": []\n}\n"
-        #expect(Launcher.sessionID(in: created) == "session:01a1")
-        #expect(Launcher.sessionID(in: "Error: session target \"frag-nope\" not found\n") == nil)
-    }
-
-    /// Trimmed from `rex client list --json` (Rex Beta 1925): a lost app client left behind by an update,
-    /// the live app, a client with no `info`, and the CLI itself.
-    private let clientList = """
-        zprofile noise
-        {
-          "clients": [
-            {
-              "client_id": "client:stale",
-              "info": { "kind": "app", "name": "Rex Beta", "version": "0.1.0 (1853)" },
-              "connection_state": "lost"
-            },
-            {
-              "client_id": "client:live",
-              "info": { "kind": "app", "name": "Rex Beta", "version": "0.1.0 (1925)" },
-              "connection_state": "connected",
-              "session_ids": ["session:1"]
-            },
-            { "client_id": "client:anon", "connection_state": "connected" },
-            {
-              "client_id": "client:cli",
-              "info": { "kind": "cli", "name": "rex" },
-              "connection_state": "connected"
-            }
-          ]
-        }
-
-        """
-
-    @Test func appClientIsTheConnectedAppNotAStaleOne() {
-        #expect(Launcher.appClientID(in: clientList) == "client:live")
-    }
-
-    @Test func appClientIsNilWithoutALiveApp() {
-        let onlyCLIs = clientList.replacingOccurrences(of: "\"kind\": \"app\"", with: "\"kind\": \"cli\"")
-        #expect(Launcher.appClientID(in: onlyCLIs) == nil)
-        #expect(Launcher.appClientID(in: "{\"clients\": []}") == nil)
-        #expect(Launcher.appClientID(in: "Error: no server\n") == nil)
-        #expect(Launcher.appClientID(in: "}{") == nil)
-    }
-
-    @Test func rexSelectNamesTheClientWhenKnown() {
-        #expect(Launcher.rexSelect(sessionID: "session:1") == ["rex", "do", "session.select", "session_id=session:1"])
-        #expect(
-            Launcher.rexSelect(sessionID: "session:1", client: "client:live") == [
-                "rex", "-C", "client:live", "do", "session.select", "session_id=session:1",
-            ])
-    }
-
-    @Test func shellQuoting() {
-        #expect("it's".shellQuoted == "'it'\\''s'")
+    @Test func theCommandQuotesEachArgumentAfterThePath() {
+        #expect(LoginShell.command(["/a b/action", "it's"]) == LoginShell.pathLine + "; '/a b/action' 'it'\\''s'")
     }
 }
 
 @MainActor @Suite struct AppModelTests {
     private func makeModel() -> AppModel {
-        AppModel(store: temporaryStore(), prefs: LaunchPrefs(folder: "/tmp/proj"))
+        AppModel(store: temporaryStore())
     }
 
     /// Cowork on ⌘⌥↩, Remind on ⌘R with a stored setting, Standup off.
@@ -289,19 +205,6 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.handle(.enter(.command)) == .close)
         #expect(try model.store.all().isEmpty)
         #expect(model.handle(.escape) == .close)
-    }
-
-    @Test func claudeChordCreatesSessionAndLaunches() throws {
-        let model = makeModel()
-        model.draft = "investigate flaky test"
-        guard case .launch(let fragment) = model.handle(.enter([.command, .shift])) else {
-            Issue.record("expected launch")
-            return
-        }
-        let session = try #require(fragment.session)
-        #expect(session.folder == "/tmp/proj")
-        #expect(UUID(uuidString: session.id) != nil)
-        #expect(try model.store.all().first?.session == session)
     }
 
     @Test func anActionsChordSavesTheFragmentAndStartsItsProgram() throws {
@@ -353,12 +256,12 @@ private func temporaryStore() -> FragmentStore {
         #expect(try model.store.all().isEmpty)
     }
 
-    @Test func theFooterListsKeepRexTheActionsThatAreOnAndCommandK() {
+    @Test func theFooterListsKeepTheActionsThatAreOnAndCommandK() {
         let model = makeModelWithActions()
-        #expect(model.captureHints == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork", "⌘R Remind", "⌘K all", "esc discard"])
+        #expect(model.captureHints == ["⌘↩ keep", "⌘⌥↩ Cowork", "⌘R Remind", "⌘K all", "esc discard"])
         // When the line is full the last actions drop off; ⌘K and esc always stay.
-        #expect(model.captureHints(actionLimit: 1) == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘⌥↩ Cowork", "⌘K all", "esc discard"])
-        #expect(model.captureHints(actionLimit: 0) == ["⌘↩ keep", "⌘⇧↩ Rex", "⌘K all", "esc discard"])
+        #expect(model.captureHints(actionLimit: 1) == ["⌘↩ keep", "⌘⌥↩ Cowork", "⌘K all", "esc discard"])
+        #expect(model.captureHints(actionLimit: 0) == ["⌘↩ keep", "⌘K all", "esc discard"])
     }
 
     @Test func commandChordNoActionOwnsLeavesTheDraftAlone() throws {
@@ -452,16 +355,29 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.mode == .detail("20260101-000001-0000"))
     }
 
-    @Test func sessionFragmentsAttach() throws {
+    /// Rex is an action like any other, and a fragment it started before it was one still comes back to it.
+    @Test func anOldRexFragmentAttachesThroughTheRexAction() throws {
         let model = makeModel()
-        let session = Session(id: "sid", folder: "/p")
-        try model.store.save(Fragment(id: "20260101-000001-0000", text: "agent", action: "claude", session: session))
+        model.actions = ActionCatalog.resolve(
+            [
+                FoundAction(
+                    id: "rex", origin: .bundled, program: URL(filePath: "/cache/bundled/rex/action"),
+                    build: .built(Manifest(name: "Rex", chord: "cmd+shift+return", type: "launch")))
+            ],
+            choices: ["rex": ActionChoice(settings: ["effort": "high"])])
+        let old = "---\nid: 20260101-000001-0000\naction: claude\nsession: frag-x\nclaude_session: sid\n---\n\nagent\n"
+        try FileManager.default.createDirectory(at: model.store.directory, withIntermediateDirectories: true)
+        try old.write(
+            to: model.store.directory.appending(path: "20260101-000001-0000.md"), atomically: true, encoding: .utf8)
         model.showList()
-        guard case .attach(let fragment) = model.handle(.char("a", [])) else {
+        guard case .start(let run) = model.handle(.char("a", [])) else {
             Issue.record("expected attach")
             return
         }
-        #expect(fragment.session == session)
+        #expect(run.verb == .attach)
+        #expect(run.program == URL(filePath: "/cache/bundled/rex/action"))
+        #expect(run.input.fragment.session == Session(id: "sid"))
+        #expect(run.input.settings == ["effort": "high"])
     }
 
     /// Everything the Actions view meets: Cowork bundled; Post yours and broken; Remind yours with a setting of each
@@ -536,8 +452,8 @@ private func temporaryStore() -> FragmentStore {
         model.draft = "buy stamps"
         #expect(model.handle(.command(AppModel.kickoffsChord)) == .handled)
         #expect(model.mode == .kickoffs)
-        #expect(model.kickoffs.map(\.name) == ["Rex", "Cowork", "Remind", "Ticket"])
-        #expect(model.kickoffs.map(\.kind) == [.launch, .open, .run, .launch])
+        #expect(model.kickoffs.map(\.name) == ["Cowork", "Remind", "Ticket"])
+        #expect(model.kickoffs.map(\.kind) == [.open, .run, .launch])
         #expect(model.handle(.char("r", [])) == .ignored)  // typing goes to the filter field
         _ = model.handle(.down)
         model.setKickoffFilter("REM")
@@ -558,22 +474,10 @@ private func temporaryStore() -> FragmentStore {
         _ = model.handle(.up)
         #expect(model.kickoffSelection == 0)
         for _ in 0..<9 { _ = model.handle(.down) }
-        #expect(model.kickoffSelection == 3)
+        #expect(model.kickoffSelection == 2)
         #expect(model.handle(.escape) == .handled)
         #expect(model.mode == .capture)
         #expect(model.draft == "not yet")
-    }
-
-    @Test func rexFromKickoffsLaunchesLikeItsChord() throws {
-        let model = makeFullModel()
-        model.draft = "investigate"
-        _ = model.handle(.command(AppModel.kickoffsChord))
-        guard case .launch(let fragment) = model.handle(.enter([])) else {
-            Issue.record("expected launch")
-            return
-        }
-        #expect(fragment.action == AppModel.rex)
-        #expect(fragment.session != nil)
     }
 
     @Test func commandCommaInTheListOpensActions() {

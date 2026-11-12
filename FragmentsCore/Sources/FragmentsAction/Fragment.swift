@@ -19,7 +19,7 @@ public struct Fragment: Equatable, Identifiable, Sendable {
     public var id: String
     public var createdAt: Date
     public var text: String
-    /// The id of the action the thought was sent to: `keep`, `claude` for Rex, or an action folder's name. A plain
+    /// The id of the action the thought was sent to: `keep`, or an action folder's name such as `rex`. A plain
     /// string, so a fragment whose action is gone keeps its id through an edit.
     public var action: String
     public var session: Session?
@@ -74,9 +74,10 @@ public struct Fragment: Equatable, Identifiable, Sendable {
         self.id = id
         createdAt = fields["created"].flatMap { try? Date($0, strategy: .iso8601) } ?? .distantPast
         text = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        action = fields["action"].flatMap { $0.isEmpty ? nil : $0 } ?? "keep"
-        // Before launch actions, Rex wrote its label as `session` and the id it needs as `claude_session`.
         let written = { (key: String) in fields[key].flatMap { $0.isEmpty ? nil : $0 } }
+        // Before Rex was an action, its fragments said `claude`.
+        action = written("action").map { $0 == "claude" ? "rex" : $0 } ?? "keep"
+        // Before launch actions, Rex wrote its label as `session` and the id it needs as `claude_session`.
         session = (written("claude_session") ?? written("session")).map { Session(id: $0, folder: written("folder")) }
     }
 }

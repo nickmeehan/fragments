@@ -5,10 +5,6 @@ import FragmentsCore
 /// the folder, dictation and action choices so tests and scripts never touch real data, preferences or Wispr Flow.
 enum Prefs {
     static let fragmentsDir = "fragmentsDir"
-    static let projectFolder = "projectFolder"
-    static let model = "model"
-    static let effort = "effort"
-    static let permissionMode = "permissionMode"
     static let newHotKey = "newHotKey"
     static let listHotKey = "listHotKey"
     static let dictation = "dictation"
@@ -17,16 +13,14 @@ enum Prefs {
 
     enum Default {
         static let fragmentsDir = "~/.fragments"
-        static let projectFolder = "~"
         static let newHotKey = "option+space"
         static let listHotKey = "option+shift+space"
     }
 
     static func register() {
         UserDefaults.standard.register(defaults: [
-            fragmentsDir: Default.fragmentsDir, projectFolder: Default.projectFolder,
-            model: "", effort: "", permissionMode: "",
-            newHotKey: Default.newHotKey, listHotKey: Default.listHotKey, dictation: true, actions: "{}",
+            fragmentsDir: Default.fragmentsDir, newHotKey: Default.newHotKey, listHotKey: Default.listHotKey,
+            dictation: true, actions: "{}",
         ])
     }
 
@@ -70,9 +64,18 @@ enum Prefs {
         UserDefaults.standard.set(text, forKey: actions)
     }
 
-    static var launch: LaunchPrefs {
-        LaunchPrefs(
-            folder: (string(projectFolder) as NSString).expandingTildeInPath, model: string(model),
-            effort: string(effort), permissionMode: string(permissionMode))
+    /// Settings → Claude Code, from before Rex was an action: each old key and the Rex setting it became.
+    private static let claudeCode = [
+        "projectFolder": "folder", "model": "model", "effort": "effort", "permissionMode": "permissionMode",
+    ]
+
+    /// Moves what you set in Settings → Claude Code into Rex's settings, once: the old key goes after. With choices
+    /// in memory (UI tests) it copies into memory and removes nothing, so a test can set them without touching yours.
+    @MainActor static func moveClaudeCodeSettingsToRex() {
+        for (old, setting) in claudeCode {
+            guard let value = UserDefaults.standard.string(forKey: old), !value.isEmpty else { continue }
+            updateChoice(for: "rex") { $0.apply(.setting(key: setting, value: value)) }
+            if choicesInMemory == nil { UserDefaults.standard.removeObject(forKey: old) }
+        }
     }
 }
