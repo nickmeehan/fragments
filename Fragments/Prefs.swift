@@ -2,7 +2,7 @@ import Foundation
 import FragmentsCore
 
 /// Settings keys shared by SettingsView (@AppStorage) and the launch code. Environment variables override
-/// the folder and dictation so tests and scripts never touch real data or Wispr Flow.
+/// the folder, dictation and action choices so tests and scripts never touch real data, preferences or Wispr Flow.
 enum Prefs {
     static let fragmentsDir = "fragmentsDir"
     static let projectFolder = "projectFolder"
@@ -44,18 +44,30 @@ enum Prefs {
             && UserDefaults.standard.bool(forKey: dictation)
     }
 
-    static var actionChoices: [String: ActionChoice] {
-        (try? ActionWire.decoder.decode([String: ActionChoice].self, from: Data(string(actions).utf8))) ?? [:]
+    /// `FRAGMENTS_CHOICES_IN_MEMORY` (UI tests): choices last only for this launch, so a test never changes yours.
+    @MainActor private static var choicesInMemory: String? =
+        ProcessInfo.processInfo.environment["FRAGMENTS_CHOICES_IN_MEMORY"] == nil ? nil : "{}"
+
+    @MainActor static var actionChoices: [String: ActionChoice] {
+        let json = choicesInMemory ?? string(actions)
+        return (try? ActionWire.decoder.decode([String: ActionChoice].self, from: Data(json.utf8))) ?? [:]
     }
 
     /// Changes one action's choices and stores them; ActionHost re-resolves on the defaults change.
-    static func updateChoice(for id: String, _ change: (inout ActionChoice) -> Void) {
+    @MainActor static func updateChoice(for id: String, _ change: (inout ActionChoice) -> Void) {
         var choices = actionChoices
         var choice = choices[id] ?? ActionChoice()
         change(&choice)
         choices[id] = choice
         guard let json = try? ActionWire.encoder.encode(choices) else { return }
-        UserDefaults.standard.set(String(decoding: json, as: UTF8.self), forKey: actions)
+        let text = String(decoding: json, as: UTF8.self)
+        guard choicesInMemory == nil else {
+            choicesInMemory = text
+            // What a real write would trigger: AppDelegate re-resolves the actions.
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: nil)
+            return
+        }
+        UserDefaults.standard.set(text, forKey: actions)
     }
 
     static var launch: LaunchPrefs {
