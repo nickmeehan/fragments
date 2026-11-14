@@ -38,7 +38,6 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
   ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's into `base/` and the
   screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's `--snapshot DIR` mode.
 - `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩ and ↩ with a harmless prompt (Nick's Mac only)
-- Red build? Use the fix-ci skill.
 
 ## Verifying a change
 
