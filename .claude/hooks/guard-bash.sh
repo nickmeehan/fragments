@@ -13,9 +13,11 @@ deny() {
   exit 2
 }
 
-echo "$cmd" | grep -qE 'git push[^|&;]*(--force|-f\b)' &&
+# `git -C <dir> push` and `git -c <key>=<value> push` are pushes too.
+push='\bgit( +-[Cc] +[^ |&;]+)* +push\b'
+echo "$cmd" | grep -qE "$push"'[^|&;]*(--force|-f\b)' &&
   deny "force-push. Fix history locally or stop and ask the user."
-echo "$cmd" | grep -qE 'git push[^|&;]*\bmain\b' &&
+echo "$cmd" | grep -qE "$push"'[^|&;]*\bmain\b' &&
   deny "direct push to main. Open a PR."
 echo "$cmd" | grep -qE 'rm -r[f ]*[^|&;]*(~|\$HOME|/Users/[^/ ]+)/Fragments\b' &&
   deny "deleting the user's real fragments folder. Tests use FRAGMENTS_DIR in a temp dir."
