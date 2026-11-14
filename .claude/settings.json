@@ -24,16 +24,13 @@
     "deny": [
       "Read(/.env)",
       "Edit(/.env)",
-      "Write(/.env)",
       "Read(/.env.local)",
       "Edit(/.env.local)",
-      "Edit(/Fragments.xcodeproj/**)",
-      "Write(/Fragments.xcodeproj/**)"
+      "Edit(/Fragments.xcodeproj/**)"
     ],
     "ask": [
       "Edit(/bin/ci)",
       "Edit(/.github/**)",
-      "Write(/.github/**)",
       "Edit(/AGENTS.md)",
       "Edit(/CLAUDE.md)",
       "Edit(/.claude/settings.json)",
