@@ -69,7 +69,4 @@ Run each layer your change can break, cheapest first, and say in the PR what you
 - Never weaken a gate to get green: no disabled tests, no `swift-format-ignore`, no skipped steps.
   Genuinely blocked? Stop and surface it with your analysis instead of routing around.
 - Anything that needs the user's hands (the UI-test automation grant, Xcode sign-in, an OS upgrade for Rex)
-  is noted in `docs/decisions.md` with what to verify once it's done. `docs/` is private: a gitignored
-  clone of `nickmeehan/fragments-docs` that the session-start hook creates, never tracked here.
-  Commit inside it and push with `git -C docs push`. Where `docs/` is missing (cloud sessions), put
-  the note in the PR description instead.
+  goes in your final message, with what to verify once it's done.

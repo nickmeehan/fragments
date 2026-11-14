@@ -12,6 +12,6 @@ xcuserdata/
 log/
 tmp/
 .DS_Store
-# private decisions log and roadmap: a clone of nickmeehan/fragments-docs (session-start.sh)
+# older checkouts may still hold a clone of the archived private docs repo here; never commit it
 docs/
 .claude/worktrees/
