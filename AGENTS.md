@@ -38,7 +38,6 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
   ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's into `base/` and the
   screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's `--snapshot DIR` mode.
 - `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩ and ↩ with a harmless prompt (Nick's Mac only)
-- Red build? Use the fix-ci skill.
 
 ## Verifying a change
 
@@ -60,8 +59,7 @@ Run each layer your change can break, cheapest first, and say in the PR what you
   loud, or ask. Simpler approach? Say so; push back.
 - Changes are surgical: every changed line traces to the task. When a change exposes a design
   problem, propose the refactor; don't do it unbidden.
-- New module or interface? Sketch two approaches and pick with reasons (design-it-twice). Deep lens:
-  the philosophy-of-software-design skill. Where behavior lives: the domain-modeling skill.
+- New module or interface? Sketch two approaches and pick with reasons (design-it-twice).
 - Side effects (processes, key events, windows) stay in `Fragments/`; state and decisions stay in
   `FragmentsCore/` where they are testable.
 - Commits follow Conventional Commits v1.0.0 (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`,

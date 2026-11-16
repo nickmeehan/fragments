@@ -1,25 +1,4 @@
 {
-  "extraKnownMarketplaces": {
-    "ichiba": {
-      "source": { "source": "github", "repo": "nickmeehan/ichiba" }
-    },
-    "claude-plugins-official": {
-      "source": { "source": "github", "repo": "anthropics/claude-plugins-official" }
-    },
-    "impeccable": {
-      "source": { "source": "github", "repo": "pbakaus/impeccable" }
-    },
-    "ponytail": {
-      "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
-    }
-  },
-  "enabledPlugins": {
-    "dev-workflow@ichiba": true,
-    "skill-creator@claude-plugins-official": true,
-    "mattpocock-skills@claude-plugins-official": true,
-    "impeccable@impeccable": true,
-    "ponytail@ponytail": true
-  },
   "permissions": {
     "deny": [
       "Read(/.env)",
