@@ -63,7 +63,7 @@ struct DetailView: View {
 }
 
 struct ListView: View {
-    var model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -80,7 +80,8 @@ struct ListView: View {
                             ForEach(Array(model.fragments.enumerated()), id: \.element.id) { index, fragment in
                                 Row(
                                     fragment: fragment, hint: model.hints[index], pending: model.pendingHint,
-                                    selected: index == model.selection
+                                    selected: index == model.selection,
+                                    title: model.isTitling && index == model.selection ? $model.titleDraft : nil
                                 )
                                 .id(fragment.id)
                             }
@@ -91,7 +92,14 @@ struct ListView: View {
                     }
                 }
             }
-            Footer(["j/k move", "type a label to jump", "↩ open", "n new", "x trash", "⌘, actions", "esc close"])
+            Footer(
+                model.isTitling
+                    ? ["type a title", "↩ save", "esc cancel"]
+                    : [
+                        "j/k move", "type a label to jump", "↩ open", "t title", "n new", "x trash", "⌘, actions",
+                        "esc close",
+                    ]
+            )
         }
         .padding(16)
     }
@@ -102,6 +110,9 @@ private struct Row: View {
     let hint: String
     let pending: String
     let selected: Bool
+    /// Set while t edits this row's title.
+    let title: Binding<String>?
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -114,7 +125,16 @@ private struct Row: View {
                     in: RoundedRectangle(cornerRadius: 4))
             Image(systemName: fragment.session == nil ? "note.text" : "terminal")
                 .foregroundStyle(.secondary)
-            Text(fragment.title).lineLimit(1)
+            if let title {
+                // The first line is the placeholder: what the row says without a title.
+                TextField(fragment.firstLine, text: title)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                    .onAppear { DispatchQueue.main.async { focused = true } }
+                    .accessibilityIdentifier("title")
+            } else {
+                Text(fragment.heading).lineLimit(1)
+            }
             Spacer()
             Text(fragment.createdAt, format: .relative(presentation: .named))
                 .font(.caption)

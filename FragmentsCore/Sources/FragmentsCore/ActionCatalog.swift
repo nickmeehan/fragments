@@ -100,13 +100,13 @@ extension ActionChoice {
 }
 
 /// What the shell runs: `<program> start` when a chord starts an action, `<program> attach` when ↩ in the list comes
-/// back to a launch. The input goes on stdin.
+/// back to a launch, `<program> retitle` when t titles one. The input goes on stdin.
 public struct ActionRun: Equatable, Sendable {
     public var name: String
     public var program: URL
     public var verb: ActionVerb
     public var input: ActionInput
-    /// A launch's start prints the session to keep; the shell reads it and hands it to `AppModel.started`.
+    /// A launch's start and attach print the session to keep; the shell reads it and hands it to `AppModel.started`.
     public var returnsSession: Bool
 
     public init(
@@ -118,6 +118,12 @@ public struct ActionRun: Equatable, Sendable {
         self.input = input
         self.returnsSession = returnsSession
     }
+}
+
+/// What the shell runs when the list opens: `<program> titles`, with every fragment that launch action started.
+public struct TitlesRun: Equatable, Sendable {
+    public var program: URL
+    public var input: TitlesInput
 }
 
 /// Decides which actions capture offers: merges the bundled ones with yours, applies your choices, and keeps

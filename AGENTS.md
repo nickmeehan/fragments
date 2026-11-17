@@ -20,8 +20,8 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 - `Fragments/` — the app shell: hotkeys (Carbon), the floating panel, SwiftUI views, Settings,
   Wispr Flow trigger, process execution. Thin; it maps events into Core and performs Core's Commands.
 - `FragmentsUITests/` — XCUITests that press real keys in the built app (`bin/ci --ui`).
-- `fixtures/` — the fragments and actions `bin/renders` draws: a note, a Rex launch, a Cowork hand-off, a long one; an
-  action with a setting of each kind, and one that doesn't compile.
+- `fixtures/` — the fragments and actions `bin/renders` draws: a note, a titled Rex launch, a Cowork hand-off, a long
+  one; an action with a setting of each kind, and one that doesn't compile.
 - `project.yml` — XcodeGen spec; the .xcodeproj is generated and git-ignored. Never edit the project
   file by hand; add files to disk and regenerate (`bin/setup`).
 - Fragments on disk: `~/.fragments/<id>.md` with YAML-ish front matter; `~/.fragments/actions/<id>/*.swift` are the
@@ -34,9 +34,10 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 - `bin/run [--capture|--list]` — build and relaunch the app
 - `swift test --package-path FragmentsCore` — fast loop for Core
 - `open 'fragments://new?text=hi'` / `open fragments://list` — drive a running app from a shell
-- `bin/renders [--against REF]` — every panel screen drawn by the app itself from `fixtures/` (capture, ⌘K, the list,
-  ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's into `base/` and the
-  screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's `--snapshot DIR` mode.
+- `bin/renders [--against REF]` — every panel screen drawn by the app itself from `fixtures/` (capture, ⌘K, the list
+  and its title field, ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's
+  into `base/` and the screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's
+  `--snapshot DIR` mode.
 - `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩ and ↩ with a harmless prompt (Nick's Mac only)
 
 ## Verifying a change

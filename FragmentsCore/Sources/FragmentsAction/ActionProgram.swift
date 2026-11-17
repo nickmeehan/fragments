@@ -25,13 +25,14 @@ public struct Manifest: Codable, Equatable, Sendable {
     }
 }
 
-/// What Fragments asks of an action's program, with an `ActionInput` on stdin. Only a launch action attaches.
+/// What Fragments asks of an action's program, with an `ActionInput` on stdin (a `TitlesInput` for `titles`). Only a
+/// launch action attaches, retitles or answers for titles.
 public enum ActionVerb: String, Codable, Sendable {
-    case start, attach
+    case start, attach, retitle, titles
 }
 
-/// What Fragments sends on stdin when a chord starts an action (`<program> start`), or when ↩ in the list comes
-/// back to a launch (`<program> attach`).
+/// What Fragments sends on stdin when a chord starts an action (`<program> start`), when ↩ in the list comes
+/// back to a launch (`<program> attach`), or when t in the list titles one (`<program> retitle`).
 public struct ActionInput: Codable, Equatable, Sendable {
     public var fragment: Fragment
     /// Only the values you changed; every other setting keeps the default the action declares.
@@ -43,12 +44,33 @@ public struct ActionInput: Codable, Equatable, Sendable {
     }
 }
 
-/// What a launch action prints after `start`: the session Fragments keeps so ↩ can come back to it.
+/// What a launch action prints after `start` and `attach`: the session Fragments keeps so ↩ can come back to it.
 public struct LaunchResult: Codable, Equatable, Sendable {
     public var session: Session
 
     public init(session: Session) {
         self.session = session
+    }
+}
+
+/// What Fragments sends for `<program> titles` when the list opens: every fragment the action launched, so one run
+/// answers for all of them.
+public struct TitlesInput: Codable, Equatable, Sendable {
+    public var fragments: [Fragment]
+    public var settings: [String: String]
+
+    public init(fragments: [Fragment], settings: [String: String] = [:]) {
+        self.fragments = fragments
+        self.settings = settings
+    }
+}
+
+/// What a launch action prints after `titles`: by fragment id, the title its session has now; null for none.
+public struct TitlesResult: Codable, Equatable, Sendable {
+    public var titles: [String: String?]
+
+    public init(titles: [String: String?]) {
+        self.titles = titles
     }
 }
 
@@ -78,54 +100,72 @@ enum ActionProgram {
         Manifest(name: A.name, chord: A.chord.rawValue, type: type.rawValue, settings: Settings.specs(of: A()))
     }
 
-    /// Answers one verb. Pure apart from `perform`, so tests drive it without a process. `perform` returns what to
-    /// print, if anything.
+    /// Answers one verb. Pure apart from `perform` and `titles`, so tests drive it without a process. Each returns
+    /// what to print, if anything; `titles` answers its verb with every fragment at once.
     static func respond<A: Action>(
         to verb: String?, input: () -> Data, as action: A.Type, type: ActionType,
-        perform: (A, ActionVerb, Fragment) throws -> Data?
+        titles: ((A, [Fragment]) throws -> Data)? = nil, perform: (A, ActionVerb, Fragment) throws -> Data?
     ) throws -> Data? {
         if verb == "manifest" { return try ActionWire.encoder.encode(manifest(of: A.self, type: type)) }
         guard let verb = verb.flatMap(ActionVerb.init(rawValue:)) else {
             throw Failure(
                 description:
                     "usage: \(CommandLine.arguments.first ?? "action") manifest | start < input.json | attach < input.json"
+                    + " | retitle < input.json | titles < input.json"
             )
         }
         guard verb == .start || type == .launch else {
-            throw Failure(description: "Only a launch action can attach; \(A.name) hands the thought off and is done.")
-        }
-        let request: ActionInput
-        do {
-            request = try ActionWire.decoder.decode(ActionInput.self, from: input())
-        } catch {
-            throw Failure(description: "The input from Fragments couldn't be read: \(error)")
+            throw Failure(
+                description: "Only a launch action can \(verb.rawValue); \(A.name) hands the thought off and is done.")
         }
         let action = A()
+        if verb == .titles {
+            let request = try read(TitlesInput.self, from: input())
+            Settings.fill(action, from: request.settings)
+            return try titles?(action, request.fragments)
+        }
+        let request = try read(ActionInput.self, from: input())
         Settings.fill(action, from: request.settings)
         return try perform(action, verb, request.fragment)
     }
 
-    /// A launch's two verbs: `start` prints the session it began, `attach` gets it back.
-    static func launch<A: LaunchAction>(_ action: A, _ verb: ActionVerb, _ fragment: Fragment) throws -> Data? {
-        switch verb {
-        case .start:
-            return try ActionWire.encoder.encode(LaunchResult(session: action.start(fragment)))
-        case .attach:
-            guard let session = fragment.session else {
-                throw Failure(description: "Nothing to attach to: fragment \(fragment.id) has no session.")
-            }
-            try action.attach(fragment, to: session)
-            return nil
+    private static func read<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try ActionWire.decoder.decode(T.self, from: data)
+        } catch {
+            throw Failure(description: "The input from Fragments couldn't be read: \(error)")
         }
     }
 
+    /// A launch's verbs: `start` prints the session it began, `attach` the session to keep, `retitle` passes on a new
+    /// title.
+    static func launch<A: LaunchAction>(_ action: A, _ verb: ActionVerb, _ fragment: Fragment) throws -> Data? {
+        if verb == .start { return try ActionWire.encoder.encode(LaunchResult(session: action.start(fragment))) }
+        guard let session = fragment.session else {
+            throw Failure(description: "Nothing to \(verb.rawValue): fragment \(fragment.id) has no session.")
+        }
+        switch verb {
+        case .attach: return try ActionWire.encoder.encode(LaunchResult(session: action.attach(fragment, to: session)))
+        case .retitle: try action.retitle(fragment, in: session)
+        case .start, .titles: break  // start is answered above, titles by `titles` with every fragment at once
+        }
+        return nil
+    }
+
+    /// `titles` for every fragment the action launched, as one answer.
+    static func titles<A: LaunchAction>(_ action: A, _ fragments: [Fragment]) throws -> Data {
+        try ActionWire.encoder.encode(TitlesResult(titles: action.titles(of: fragments)))
+    }
+
     static func main<A: Action>(
-        _ action: A.Type, type: ActionType, perform: (A, ActionVerb, Fragment) throws -> Data?
+        _ action: A.Type, type: ActionType, titles: ((A, [Fragment]) throws -> Data)? = nil,
+        perform: (A, ActionVerb, Fragment) throws -> Data?
     ) {
         do {
             let output = try respond(
                 to: CommandLine.arguments.dropFirst().first,
-                input: { FileHandle.standardInput.readDataToEndOfFile() }, as: A.self, type: type, perform: perform)
+                input: { FileHandle.standardInput.readDataToEndOfFile() }, as: A.self, type: type, titles: titles,
+                perform: perform)
             if let output { FileHandle.standardOutput.write(output) }
             exit(0)
         } catch {

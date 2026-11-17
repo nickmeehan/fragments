@@ -30,7 +30,12 @@ final class PanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(rootView: PanelRoot(model: model))
         model.actions = ActionHost.shared.actions
-        ActionHost.shared.onChange = { [weak model] actions in model?.actions = actions }
+        ActionHost.shared.onChange = { [weak self] actions in
+            guard let self else { return }
+            model.actions = actions
+            // The list may have opened before the actions were compiled (right after launch); ask now.
+            if panel.isVisible, model.mode == .list { syncTitles() }
+        }
         // `self?.handle(event) ?? event` would also resurrect the keys handle() swallows (nil means both
         // "no self" and "consumed"), handing them to AppKit to beep at; keep the two cases apart.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -54,6 +59,14 @@ final class PanelController {
     func showList() {
         model.showList()
         show()
+        syncTitles()
+    }
+
+    /// Asks each launch action what its sessions are called now; a name changed there becomes the title here.
+    private func syncTitles() {
+        for run in model.titleRuns {
+            ActionHost.shared.titles(run) { [model] titles in model.adoptTitles(titles, asked: run.input.fragments) }
+        }
     }
 
     private func show() {
@@ -99,6 +112,8 @@ final class PanelController {
             hide()
             let id = run.input.fragment.id
             ActionHost.shared.start(run) { [model] session in model.started(id, session: session) }
+        case .retitle(let run):
+            ActionHost.shared.start(run) { _ in }
         case .choose(let id, let change):
             Prefs.updateChoice(for: id) { $0.apply(change) }  // ActionHost re-resolves on the defaults change
         case .revealActions:

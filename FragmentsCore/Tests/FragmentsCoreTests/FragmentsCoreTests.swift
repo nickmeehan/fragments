@@ -87,8 +87,25 @@ private func temporaryStore() -> FragmentStore {
         #expect(earlier < later)
     }
 
-    @Test func titleIsFirstLine() {
-        #expect(Fragment(text: "first line\nsecond").title == "first line")
+    @Test func theHeadingIsTheTitleElseTheFirstLine() {
+        #expect(Fragment(text: "first line\nsecond").heading == "first line")
+        #expect(Fragment(text: "first line\nsecond", title: "Named").heading == "Named")
+    }
+
+    /// The title, the action's session and what resumes it ride in the front matter and on the wire; files without
+    /// them still read.
+    @Test func aTitleAndResumeRoundTrip() throws {
+        let original = Fragment(
+            id: "x", createdAt: Date(timeIntervalSince1970: 1_800_000_000), text: "hi", title: "Login: the bug",
+            action: "rex", session: Session(id: "session:01a1", folder: "/p", resume: "sid"))
+        #expect(
+            original.markdown.contains(
+                "action: rex\ntitle: Login: the bug\nsession: session:01a1\nresume: sid\nfolder: /p\n"))
+        #expect(try #require(Fragment(markdown: original.markdown)) == original)
+        #expect(try ActionWire.decoder.decode(Fragment.self, from: ActionWire.encoder.encode(original)) == original)
+        let before = try #require(Fragment(markdown: "---\nid: x\naction: rex\nsession: sid\n---\n\nhi\n"))
+        #expect(before.title == nil)
+        #expect(before.session == Session(id: "sid"))
     }
 }
 
@@ -432,9 +449,105 @@ private func temporaryStore() -> FragmentStore {
             return
         }
         #expect(run.verb == .attach)
-        #expect(!run.returnsSession)
+        #expect(run.returnsSession)
         #expect(run.name == "Ticket")
         #expect(run.input.fragment.session == session)
+    }
+
+    /// Attach hands back the session to keep: a new one is saved, the same one leaves the file alone.
+    @Test func anAttachThatOpensANewSessionIsKept() throws {
+        let model = makeFullModel()
+        let fragment = Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: Session(id: "old"))
+        try model.store.save(fragment)
+        let modified = {
+            try FileManager.default.attributesOfItem(atPath: model.store.url(for: fragment).path)[.modificationDate]
+                as? Date
+        }
+        let before = try modified()
+        model.started(fragment.id, session: Session(id: "old"))
+        #expect(try modified() == before)
+        model.started(fragment.id, session: Session(id: "new", resume: "conversation"))
+        #expect(try model.store.all().first?.session == Session(id: "new", resume: "conversation"))
+    }
+
+    /// When the list opens, each launch action is asked about every fragment it started, in one run.
+    @Test func theListAsksEachLaunchActionForItsTitles() throws {
+        let model = makeFullModel()
+        try model.store.save(
+            Fragment(id: "20260101-000001-0000", text: "a", action: "ticket", session: Session(id: "1")))
+        try model.store.save(
+            Fragment(id: "20260101-000002-0000", text: "b", action: "ticket", session: Session(id: "2")))
+        try model.store.save(Fragment(id: "20260101-000003-0000", text: "note"))
+        try model.store.save(Fragment(id: "20260101-000004-0000", text: "c", action: "cowork"))
+        model.showList()
+        let runs = model.titleRuns
+        #expect(runs.map(\.program.path) == ["/cache/yours/ticket/action"])
+        #expect(runs.first?.input.fragments.map(\.id) == ["20260101-000002-0000", "20260101-000001-0000"])
+    }
+
+    /// A name changed where the session runs becomes the title; nil clears it. A title you changed here since the
+    /// question went out stays, and so does one the action said nothing about.
+    @Test func titlesFromTheActionAreSavedUnlessYouRetitledSince() throws {
+        let model = makeFullModel()
+        let ids = ["20260101-000001-0000", "20260101-000002-0000", "20260101-000003-0000", "20260101-000004-0000"]
+        for (index, id) in ids.enumerated() {
+            try model.store.save(
+                Fragment(id: id, text: "t\(index)", title: "Old \(index)", action: "ticket", session: Session(id: id)))
+        }
+        model.showList()
+        let asked = try #require(model.titleRuns.first).input.fragments
+        var edited = try #require(try model.store.all().first { $0.id == ids[2] })
+        edited.title = "Mine"
+        try model.store.save(edited)
+        model.adoptTitles([ids[0]: "From Rex", ids[1]: nil, ids[2]: "From Rex"], asked: asked)
+        let titles = Dictionary(uniqueKeysWithValues: try model.store.all().map { ($0.id, $0.title) })
+        #expect(titles == [ids[0]: "From Rex", ids[1]: nil, ids[2]: "Mine", ids[3]: "Old 3"])
+        #expect(model.fragments.first { $0.id == ids[0] }?.heading == "From Rex")
+    }
+
+    /// t edits the selected row's title in place; ↩ saves it, and the launch action that started the fragment hears
+    /// about it without the panel closing.
+    @Test func tTitlesALaunchedFragmentAndTellsItsAction() throws {
+        let model = makeFullModel()
+        let session = Session(id: "ENG-42")
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: session))
+        model.showList()
+        #expect(model.handle(.char("t", [])) == .handled)
+        #expect(model.isTitling)
+        #expect(model.titleDraft == "")
+        #expect(model.handle(.char("x", [])) == .ignored)  // typing goes to the field, not to trash
+        model.titleDraft = "  Login\nbug  "
+        guard case .retitle(let run) = model.handle(.enter([])) else {
+            Issue.record("expected retitle")
+            return
+        }
+        #expect(run.verb == .retitle)
+        #expect(run.name == "Ticket")
+        #expect(run.input.fragment.title == "Login bug")
+        #expect(run.input.fragment.session == session)
+        #expect(!model.isTitling)
+        #expect(model.mode == .list)
+        #expect(try model.store.all().first?.title == "Login bug")
+        #expect(model.fragments.first?.heading == "Login bug")
+    }
+
+    /// A note just keeps its title; esc drops an edit, an unchanged title tells no one, and an empty one clears it.
+    @Test func escDropsATitleAndAnEmptyOneClearsIt() throws {
+        let model = makeFullModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", title: "Old"))
+        model.showList()
+        _ = model.handle(.char("t", []))
+        #expect(model.titleDraft == "Old")
+        model.titleDraft = "New"
+        #expect(model.handle(.escape) == .handled)
+        #expect(model.mode == .list)
+        #expect(try model.store.all().first?.title == "Old")
+        _ = model.handle(.char("t", []))
+        #expect(model.handle(.enter([])) == .handled)
+        _ = model.handle(.char("t", []))
+        model.titleDraft = " "
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(try model.store.all().first?.title == nil)
     }
 
     /// Its folder deleted, a launch still opens: as a note, with the session kept in the file.
