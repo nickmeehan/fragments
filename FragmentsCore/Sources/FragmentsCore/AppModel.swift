@@ -243,10 +243,30 @@ public final class AppModel {
         return .handled
     }
 
+    /// Whether `key` in capture saves the draft and closes: ⌘↩, or the chord of an action that is on. The shell holds
+    /// such a key until Wispr Flow has typed what it heard.
+    public func submits(_ key: Key) -> Bool {
+        guard mode == .capture else { return false }
+        switch key {
+        case .enter(.command):
+            return true
+        case .enter(let modifiers) where modifiers.contains(.command):
+            return owner(of: KeyCombo(modifiers: modifiers, key: "return")) != nil
+        case .command(let chord):
+            return chord != AppModel.kickoffsChord && owner(of: chord) != nil
+        default:
+            return false
+        }
+    }
+
+    private func owner(of chord: KeyCombo) -> ActionInfo? {
+        actions.first { $0.on && $0.chord == chord }
+    }
+
     /// Saves the draft for the action that is on for this chord and has the shell run it. Nil when no action
     /// owns the chord.
     private func start(_ chord: KeyCombo) -> Command? {
-        actions.first { $0.on && $0.chord == chord }.map { start($0) }
+        owner(of: chord).map { start($0) }
     }
 
     private func start(_ action: ActionInfo) -> Command {

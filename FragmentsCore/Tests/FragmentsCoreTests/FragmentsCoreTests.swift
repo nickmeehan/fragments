@@ -281,6 +281,22 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.captureHints(actionLimit: 0) == ["⌘↩ keep", "⌘K all", "esc discard"])
     }
 
+    /// The keys the shell holds while Wispr Flow finishes: only those that save, even with nothing typed yet.
+    @Test func submitsNamesTheKeysThatSaveFromCapture() {
+        let model = makeModelWithActions()
+        #expect(model.submits(.enter(.command)))
+        #expect(model.submits(.enter([.command, .option])))  // Cowork
+        #expect(model.submits(.command(KeyCombo(modifiers: .command, key: "r"))))  // Remind
+        #expect(!model.submits(.command(KeyCombo(modifiers: .command, key: "u"))))  // Standup is off
+        #expect(!model.submits(.command(KeyCombo(modifiers: .command, key: "a"))))
+        #expect(!model.submits(.enter([.command, .control])))
+        #expect(!model.submits(.command(AppModel.kickoffsChord)))
+        #expect(!model.submits(.enter([])))
+        #expect(!model.submits(.escape))
+        model.showList()
+        #expect(!model.submits(.enter(.command)))
+    }
+
     @Test func commandChordNoActionOwnsLeavesTheDraftAlone() throws {
         let model = makeModel()
         model.draft = "not yet"
