@@ -49,12 +49,13 @@ public final class AppModel {
     public static let keep = "keep"
     public static let kickoffsChord = KeyCombo(modifiers: .command, key: "k")
     public static let actionsChord = KeyCombo(modifiers: .command, key: ",")
+    /// ⌘1…⌘9 open the list's first nine rows, the way ⌘-number picks a tab.
+    public static let jumpChords = (1...9).map { KeyCombo(modifiers: .command, key: "\($0)") }
 
     public private(set) var mode: Mode = .capture
     public var draft = ""
     public private(set) var fragments: [Fragment] = []
     public private(set) var selection = 0
-    public private(set) var pendingHint = ""
     /// Every action found, on or off; the shell refreshes it when capture opens.
     public var actions: [ActionInfo] = []
     public let store: FragmentStore
@@ -76,10 +77,6 @@ public final class AppModel {
 
     public init(store: FragmentStore) {
         self.store = store
-    }
-
-    public var hints: [String] {
-        HintLabels.labels(count: fragments.count)
     }
 
     /// The capture footer: keep, each action that is on, ⌘K, esc.
@@ -121,7 +118,6 @@ public final class AppModel {
     public func showList() {
         reload()
         selection = min(selection, max(fragments.count - 1, 0))
-        pendingHint = ""
         isTitling = false
         mode = .list
     }
@@ -261,10 +257,6 @@ public final class AppModel {
     private func handleList(_ key: Key) -> Command {
         switch key {
         case .escape:
-            guard pendingHint.isEmpty else {
-                pendingHint = ""
-                return .handled
-            }
             return .close
         case .down:
             move(1)
@@ -276,6 +268,8 @@ public final class AppModel {
             actionSelection = min(actionSelection, max(actions.count - 1, 0))
             isRecording = false
             mode = .actions
+        case .command(let chord):
+            if let index = AppModel.jumpChords.firstIndex(of: chord) { return open(index) }
         case .char(let character, let modifiers) where modifiers.isEmpty:
             switch character {
             case "j": move(1)
@@ -289,13 +283,7 @@ public final class AppModel {
                 beginCapture()
                 return .startDictation
             default:
-                guard HintLabels.alphabet.contains(character) else { return .handled }
-                pendingHint.append(character)
-                if let index = hints.firstIndex(of: pendingHint) {
-                    pendingHint = ""
-                    return open(index)
-                }
-                if !hints.contains(where: { $0.hasPrefix(pendingHint) }) { pendingHint = "" }
+                break
             }
         default:
             break
@@ -321,7 +309,6 @@ public final class AppModel {
 
     private func move(_ delta: Int) {
         selection = min(max(selection + delta, 0), max(fragments.count - 1, 0))
-        pendingHint = ""
     }
 
     /// A launched fragment goes back to what it started; anything else opens in the editor, including a launch

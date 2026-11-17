@@ -79,8 +79,10 @@ struct ListView: View {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(model.fragments.enumerated()), id: \.element.id) { index, fragment in
                                 Row(
-                                    fragment: fragment, icon: model.icon(for: fragment), hint: model.hints[index],
-                                    pending: model.pendingHint, selected: index == model.selection,
+                                    fragment: fragment, icon: model.icon(for: fragment),
+                                    jump: AppModel.jumpChords.indices.contains(index)
+                                        ? AppModel.jumpChords[index].symbols : nil,
+                                    selected: index == model.selection,
                                     title: model.isTitling && index == model.selection ? $model.titleDraft : nil
                                 )
                                 .id(fragment.id)
@@ -96,8 +98,7 @@ struct ListView: View {
                 model.isTitling
                     ? ["type a title", "↩ save", "esc cancel"]
                     : [
-                        "j/k move", "type a label to jump", "↩ open", "t title", "n new", "x trash", "⌘, actions",
-                        "esc close",
+                        "j/k move", "↩ open", "⌘1–9 jump", "t title", "n new", "x trash", "⌘, actions", "esc close",
                     ]
             )
         }
@@ -108,8 +109,8 @@ struct ListView: View {
 private struct Row: View {
     let fragment: Fragment
     let icon: String
-    let hint: String
-    let pending: String
+    /// The chord that opens this row, ⌘1…⌘9; nil past the ninth.
+    let jump: String?
     let selected: Bool
     /// Set while t edits this row's title.
     let title: Binding<String>?
@@ -117,13 +118,14 @@ private struct Row: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(hint)
+            Text(jump ?? "⌘1")
                 .font(.system(.caption, design: .monospaced).bold())
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
-                .background(
-                    !pending.isEmpty && hint.hasPrefix(pending) ? Color.accentColor : Color.secondary.opacity(0.2),
-                    in: RoundedRectangle(cornerRadius: 4))
+                .background(Color.secondary.opacity(0.2), in: RoundedRectangle(cornerRadius: 4))
+                // Past ⌘9 the badge keeps its space unseen, so every row's icon and title still line up.
+                .opacity(jump == nil ? 0 : 1)
+                .accessibilityHidden(jump == nil)
             Image(systemName: icon)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)  // as in ⌘K, so every title starts at the same place whatever the icon
