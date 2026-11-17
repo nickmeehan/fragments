@@ -70,6 +70,7 @@ private func launchTitles(_ fragments: [Fragment]) throws -> Data? {
         #expect(manifest.name == "Remind")
         #expect(manifest.chord == "cmd+control+return")
         #expect(manifest.type == "run")
+        #expect(manifest.icon == "bolt")  // Remind names no icon, so it gets its kind's
         #expect(
             manifest.settings == [
                 SettingSpec(key: "folder", label: "Project folder", kind: .folder, defaultValue: "~/code"),
@@ -209,7 +210,11 @@ private func bytes(_ parts: String...) -> Data {
 @Suite struct CoworkTests {
     @Test func coworkIsALaunchActionOnCommandOptionReturn() {
         let manifest = ActionProgram.manifest(of: Cowork.self, type: .launch)
-        #expect(manifest == Manifest(name: "Cowork", chord: "cmd+option+return", type: "launch"))
+        #expect(
+            manifest
+                == Manifest(
+                    name: "Cowork", chord: "cmd+option+return", type: "launch",
+                    icon: "bubble.left.and.text.bubble.right"))
     }
 
     @Test func theDraftLinkCarriesTheThoughtFullyEscaped() throws {
@@ -345,6 +350,7 @@ private func bytes(_ parts: String...) -> Data {
         let manifest = ActionProgram.manifest(of: Rex.self, type: .launch)
         #expect(manifest.name == "Rex")
         #expect(manifest.chord == "cmd+shift+return")
+        #expect(manifest.icon == "terminal")
         #expect(manifest.settings.map(\.key) == ["folder", "model", "effort", "permissionMode"])
         #expect(manifest.settings[0].kind == .folder)
         #expect(manifest.settings[0].defaultValue == "~")
@@ -611,6 +617,21 @@ private func bytes(_ parts: String...) -> Data {
         #expect(actions.first?.kind == .launch)
         #expect(actions.first?.on == true)
         #expect(actions.first?.problem == nil)
+    }
+
+    /// An action is drawn with the icon it names; a manifest from before icons gets its kind's, and one still
+    /// building gets a run's bolt.
+    @Test func anActionsIconIsItsOwnElseItsKinds() {
+        var named = found("rex", type: "launch")
+        named.build = .built(Manifest(name: "Rex", chord: "cmd+r", type: "launch", icon: "terminal"))
+        let building = FoundAction(
+            id: "new", origin: .yours, program: URL(filePath: "/cache/yours/new/action"), build: .building)
+        let actions = ActionCatalog.resolve(
+            [named, found("ticket", chord: "cmd+t", type: "launch"), building], choices: [:])
+        #expect(
+            Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0.icon) })
+                == ["rex": "terminal", "ticket": "arrow.uturn.backward.square", "new": "bolt"])
+        #expect(ActionProgram.manifest(of: Ticket.self, type: .launch).icon == "arrow.uturn.backward.square")
     }
 
     /// The Actions view records a new chord only when nobody else has it.

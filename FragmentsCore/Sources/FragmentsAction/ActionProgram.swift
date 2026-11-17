@@ -11,16 +11,19 @@ public struct Manifest: Codable, Equatable, Sendable {
     /// A string, not `ActionType`, so a type this version of Fragments doesn't know still decodes and can be
     /// reported as such.
     public var type: String
+    /// The SF Symbol it's drawn with. Nil in a manifest from before icons; Fragments then draws its kind's.
+    public var icon: String?
     public var settings: [SettingSpec]
 
     public init(
-        protocol: Int = Manifest.currentProtocol, name: String, chord: String, type: String,
+        protocol: Int = Manifest.currentProtocol, name: String, chord: String, type: String, icon: String? = nil,
         settings: [SettingSpec] = []
     ) {
         self.protocol = `protocol`
         self.name = name
         self.chord = chord
         self.type = type
+        self.icon = icon
         self.settings = settings
     }
 }
@@ -97,7 +100,8 @@ enum ActionProgram {
     }
 
     static func manifest<A: Action>(of action: A.Type, type: ActionType) -> Manifest {
-        Manifest(name: A.name, chord: A.chord.rawValue, type: type.rawValue, settings: Settings.specs(of: A()))
+        Manifest(
+            name: A.name, chord: A.chord.rawValue, type: type.rawValue, icon: A.icon, settings: Settings.specs(of: A()))
     }
 
     /// Answers one verb. Pure apart from `perform` and `titles`, so tests drive it without a process. Each returns

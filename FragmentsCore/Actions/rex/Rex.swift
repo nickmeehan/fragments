@@ -8,6 +8,7 @@ import FragmentsAction
 struct Rex: LaunchAction {
     static let name = "Rex"
     static let chord: Chord = "cmd+shift+return"
+    static let icon = "terminal"
 
     @Setting("Project folder", kind: .folder) var folder = "~"
     @Setting("Model", placeholder: "default") var model: String?

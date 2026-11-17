@@ -79,8 +79,8 @@ struct ListView: View {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(model.fragments.enumerated()), id: \.element.id) { index, fragment in
                                 Row(
-                                    fragment: fragment, hint: model.hints[index], pending: model.pendingHint,
-                                    selected: index == model.selection,
+                                    fragment: fragment, icon: model.icon(for: fragment), hint: model.hints[index],
+                                    pending: model.pendingHint, selected: index == model.selection,
                                     title: model.isTitling && index == model.selection ? $model.titleDraft : nil
                                 )
                                 .id(fragment.id)
@@ -107,6 +107,7 @@ struct ListView: View {
 
 private struct Row: View {
     let fragment: Fragment
+    let icon: String
     let hint: String
     let pending: String
     let selected: Bool
@@ -123,8 +124,9 @@ private struct Row: View {
                 .background(
                     !pending.isEmpty && hint.hasPrefix(pending) ? Color.accentColor : Color.secondary.opacity(0.2),
                     in: RoundedRectangle(cornerRadius: 4))
-            Image(systemName: fragment.session == nil ? "note.text" : "terminal")
+            Image(systemName: icon)
                 .foregroundStyle(.secondary)
+                .frame(width: 18)  // as in ⌘K, so every title starts at the same place whatever the icon
             if let title {
                 // The first line is the placeholder: what the row says without a title.
                 TextField(fragment.firstLine, text: title)
@@ -197,7 +199,7 @@ struct KickoffsView: View {
             VStack(spacing: 2) {
                 ForEach(Array(model.kickoffs.enumerated()), id: \.element.id) { index, kickoff in
                     LineRow(
-                        name: kickoff.name, kind: kickoff.kind, match: model.kickoffFilter,
+                        name: kickoff.name, icon: kickoff.icon, match: model.kickoffFilter,
                         selected: index == model.kickoffSelection
                     ) {
                         Text(kickoff.chord.symbols).font(.caption).foregroundStyle(.secondary)
@@ -231,7 +233,7 @@ struct ActionsView: View {
                         ForEach(Array(model.actions.enumerated()), id: \.element.id) { index, action in
                             let selected = index == model.actionSelection
                             LineRow(
-                                name: action.name, kind: action.kind, on: action.on,
+                                name: action.name, icon: action.icon, on: action.on,
                                 subtitle: action.origin == .bundled ? "Bundled" : "Yours", selected: selected
                             ) {
                                 trailing(action, recording: selected && model.isRecording)
@@ -391,7 +393,7 @@ struct ActionProblemView: View {
 /// A row in ⌘K or ⌘, Actions, drawn like a fragment's row in the list.
 private struct LineRow<Trailing: View>: View {
     let name: String
-    let kind: ActionType?
+    let icon: String
     var on = true
     var subtitle: String? = nil
     var match = ""
@@ -400,7 +402,7 @@ private struct LineRow<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
+            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 18)
             Text(highlighted).foregroundStyle(on ? .primary : .secondary)
             if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
             Spacer()
@@ -408,15 +410,6 @@ private struct LineRow<Trailing: View>: View {
         }
         .padding(8)
         .background(selected ? Color.accentColor.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 6))
-    }
-
-    /// A terminal for a launch, an arrow out for an open, a bolt for a run.
-    private var symbol: String {
-        switch kind {
-        case .launch: "terminal"
-        case .open: "arrow.up.forward.app"
-        case .run, nil: "bolt"
-        }
     }
 
     /// The part of the name the filter matched, in bold.
