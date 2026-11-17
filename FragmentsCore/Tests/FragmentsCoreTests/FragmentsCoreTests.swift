@@ -564,6 +564,46 @@ private func temporaryStore() -> FragmentStore {
         #expect(try model.store.all().first?.title == nil)
     }
 
+    /// / narrows the list to fragments whose title or text has the filter. ↩ opens the highlighted one; esc, or the
+    /// list opening again, goes back to every fragment with that one still selected.
+    @Test func slashFiltersTheListByTitleAndText() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "buy stamps"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "why does it flicker?", title: "List bug"))
+        try model.store.save(Fragment(id: "20260101-000003-0000", text: "the list of venues"))
+        model.showList()  // newest first: venues, List bug, stamps
+        #expect(model.handle(.char("/", [])) == .handled)
+        #expect(model.isFiltering)
+        #expect(model.handle(.char("a", [])) == .ignored)  // typing goes to the field, not to a hint
+        model.setListFilter("LIST")
+        #expect(model.shown.map(\.id) == ["20260101-000003-0000", "20260101-000002-0000"])
+        #expect(model.handle(.down) == .handled)
+        #expect(model.handle(.down) == .handled)
+        #expect(model.selection == 1)
+        #expect(model.handle(.escape) == .handled)
+        #expect(!model.isFiltering)
+        #expect(model.shown.count == 3)
+        #expect(model.fragments[model.selection].title == "List bug")
+
+        _ = model.handle(.char("/", []))
+        model.setListFilter("nothing like it")
+        #expect(model.shown.isEmpty)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .list)
+        model.setListFilter("stamps")
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .detail("20260101-000001-0000"))
+        #expect(model.handle(.escape) == .handled)
+        #expect(model.listFilter.isEmpty)
+        #expect(model.selection == 2)
+
+        _ = model.handle(.char("/", []))
+        model.setListFilter("venues")
+        model.showList()  // the panel closed mid-filter and opened again
+        #expect(!model.isFiltering)
+        #expect(model.selection == 0)
+    }
+
     /// Its folder deleted, a launch still opens: as a note, with the session kept in the file.
     @Test func aLaunchWhoseActionIsGoneOpensAsANote() throws {
         let model = makeFullModel()

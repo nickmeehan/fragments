@@ -76,6 +76,27 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["second thought"].waitForExistence(timeout: 3))
     }
 
+    /// / opens a filter: typing narrows the list instead of jumping, and ↩ opens what's left.
+    func testSlashFiltersTheList() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for (index, text) in ["first thought", "second thought"].enumerated() {
+            try "---\nid: 20260101-00000\(index)-0000\naction: keep\n---\n\n\(text)\n"
+                .write(to: folder.appending(path: "20260101-00000\(index)-0000.md"), atomically: true, encoding: .utf8)
+        }
+        let app = launch(arguments: ["--list"])
+        XCTAssertTrue(app.staticTexts["second thought"].waitForExistence(timeout: 5))
+        app.typeKey("/", modifierFlags: [])
+        XCTAssertTrue(app.textFields["filter"].waitForExistence(timeout: 3))
+        app.typeText("fir")
+        XCTAssertTrue(app.staticTexts["second thought"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["first thought"].exists)
+        snapshot(app, "list-filter")
+        app.typeKey(.return, modifierFlags: [])
+        let editor = app.textViews["draft"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        XCTAssertEqual(editor.value as? String, "first thought")
+    }
+
     /// A stand-in for `rex` that logs each call to `rex.log` and answers like Rex: a new session, a live one for
     /// `session inspect`, the file `sessions` for `session ls`, one connected app, and a select that works.
     private func addFakeRex() throws {

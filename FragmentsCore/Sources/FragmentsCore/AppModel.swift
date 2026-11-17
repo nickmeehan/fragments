@@ -1,9 +1,9 @@
 import Foundation
 import Observation
 
-/// The panel's whole state machine: capture → keep, launch or ⌘K; list → open, attach, title, trash or ⌘,; detail → edit;
-/// Actions → on/off, rebind, settings. Pure state plus `Command`s for the app shell to perform, so every path runs
-/// under `swift test`.
+/// The panel's whole state machine: capture → keep, launch or ⌘K; list → open, attach, title, filter, trash or ⌘,;
+/// detail → edit; Actions → on/off, rebind, settings. Pure state plus `Command`s for the app shell to perform, so every
+/// path runs under `swift test`.
 @MainActor @Observable
 public final class AppModel {
     public enum Mode: Equatable, Sendable {
@@ -73,6 +73,9 @@ public final class AppModel {
     /// t in the list: typing goes into `titleDraft` until ↩ saves it on the selected fragment or esc drops it.
     public private(set) var isTitling = false
     public var titleDraft = ""
+    /// / in the list: typing goes into `listFilter`, which narrows `shown`, until ↩ opens a match or esc leaves it.
+    public private(set) var isFiltering = false
+    public private(set) var listFilter = ""
 
     public init(store: FragmentStore) {
         self.store = store
@@ -103,6 +106,16 @@ public final class AppModel {
         return all.filter { $0.name.localizedCaseInsensitiveContains(kickoffFilter) }
     }
 
+    /// The list as drawn: every fragment, or only those whose title or text contains the filter. `selection` points
+    /// into this.
+    public var shown: [Fragment] {
+        guard !listFilter.isEmpty else { return fragments }
+        return fragments.filter {
+            $0.text.localizedCaseInsensitiveContains(listFilter)
+                || ($0.title?.localizedCaseInsensitiveContains(listFilter) ?? false)
+        }
+    }
+
     /// The icon on a fragment's row: a note, or the icon of the action ↩ comes back to (a launch's, if it's gone).
     public func icon(for fragment: Fragment) -> String {
         guard fragment.session != nil else { return "note.text" }
@@ -119,6 +132,7 @@ public final class AppModel {
     }
 
     public func showList() {
+        endFilter()
         reload()
         selection = min(selection, max(fragments.count - 1, 0))
         pendingHint = ""
@@ -134,6 +148,12 @@ public final class AppModel {
     public func setKickoffFilter(_ text: String) {
         kickoffFilter = text
         kickoffSelection = 0
+    }
+
+    /// The list's filter field writes here; a new filter starts again at the top.
+    public func setListFilter(_ text: String) {
+        listFilter = text
+        selection = 0
     }
 
     /// A launch action answered its start, or an attach: keep the session on the fragment, so ↩ in the list comes back
@@ -177,7 +197,9 @@ public final class AppModel {
     public func handle(_ key: Key) -> Command {
         switch mode {
         case .capture: return handleCapture(key)
-        case .list: return isTitling ? handleTitling(key) : handleList(key)
+        case .list:
+            if isTitling { return handleTitling(key) }
+            return isFiltering ? handleFiltering(key) : handleList(key)
         case .detail(let id): return handleDetail(key, id: id)
         case .kickoffs: return handleKickoffs(key)
         case .actions: return isRecording ? handleRecording(key) : handleActions(key)
@@ -281,6 +303,9 @@ public final class AppModel {
             case "j": move(1)
             case "k": move(-1)
             case "x": trashSelected()
+            case "/":
+                pendingHint = ""
+                isFiltering = true
             case "t":
                 guard fragments.indices.contains(selection) else { break }
                 titleDraft = fragments[selection].title ?? ""
@@ -334,6 +359,34 @@ public final class AppModel {
         draft = fragment.text
         mode = .detail(fragment.id)
         return .handled
+    }
+
+    private func handleFiltering(_ key: Key) -> Command {
+        switch key {
+        case .escape:
+            endFilter()
+        case .up:
+            selection = max(selection - 1, 0)
+        case .down:
+            selection = min(selection + 1, max(shown.count - 1, 0))
+        case .enter([]):
+            guard shown.indices.contains(selection) else { break }
+            endFilter()
+            return open(selection)
+        case .enter:
+            break
+        default:
+            return .ignored  // typing goes to the field
+        }
+        return .handled
+    }
+
+    /// Back to every fragment, with the one the filter had highlighted still selected.
+    private func endFilter() {
+        let id = shown.indices.contains(selection) ? shown[selection].id : nil
+        selection = fragments.firstIndex { $0.id == id } ?? 0
+        listFilter = ""
+        isFiltering = false
     }
 
     private func handleTitling(_ key: Key) -> Command {

@@ -67,6 +67,14 @@ struct ListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if model.isFiltering {
+                FilterField(
+                    prompt: "Filter by title or text…",
+                    text: Binding(get: { model.listFilter }, set: { model.setListFilter($0) }))
+                if model.shown.isEmpty, !model.fragments.isEmpty {
+                    Text("Nothing matches “\(model.listFilter)”.").foregroundStyle(.secondary).padding(8)
+                }
+            }
             if model.fragments.isEmpty {
                 Spacer()
                 Text("No fragments yet. Press n to capture one.")
@@ -77,9 +85,10 @@ struct ListView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(model.fragments.enumerated()), id: \.element.id) { index, fragment in
+                            ForEach(Array(model.shown.enumerated()), id: \.element.id) { index, fragment in
                                 Row(
-                                    fragment: fragment, icon: model.icon(for: fragment), hint: model.hints[index],
+                                    fragment: fragment, icon: model.icon(for: fragment),
+                                    hint: model.isFiltering ? nil : model.hints[index],
                                     pending: model.pendingHint, selected: index == model.selection,
                                     title: model.isTitling && index == model.selection ? $model.titleDraft : nil
                                 )
@@ -88,27 +97,30 @@ struct ListView: View {
                         }
                     }
                     .onChange(of: model.selection) { _, index in
-                        if model.fragments.indices.contains(index) { proxy.scrollTo(model.fragments[index].id) }
+                        if model.shown.indices.contains(index) { proxy.scrollTo(model.shown[index].id) }
                     }
                 }
             }
-            Footer(
-                model.isTitling
-                    ? ["type a title", "↩ save", "esc cancel"]
-                    : [
-                        "j/k move", "type a label to jump", "↩ open", "t title", "n new", "x trash", "⌘, actions",
-                        "esc close",
-                    ]
-            )
+            Footer(footer)
         }
         .padding(16)
+    }
+
+    private var footer: [String] {
+        if model.isTitling { return ["type a title", "↩ save", "esc cancel"] }
+        if model.isFiltering { return ["type to filter", "↑↓ move", "↩ open", "esc back to all"] }
+        return [
+            "j/k move", "type a label to jump", "↩ open", "/ filter", "t title", "n new", "x trash", "⌘, actions",
+            "esc close",
+        ]
     }
 }
 
 private struct Row: View {
     let fragment: Fragment
     let icon: String
-    let hint: String
+    /// Nil while / filters, since typing goes to the field.
+    let hint: String?
     let pending: String
     let selected: Bool
     /// Set while t edits this row's title.
@@ -117,13 +129,15 @@ private struct Row: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(hint)
-                .font(.system(.caption, design: .monospaced).bold())
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(
-                    !pending.isEmpty && hint.hasPrefix(pending) ? Color.accentColor : Color.secondary.opacity(0.2),
-                    in: RoundedRectangle(cornerRadius: 4))
+            if let hint {
+                Text(hint)
+                    .font(.system(.caption, design: .monospaced).bold())
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        !pending.isEmpty && hint.hasPrefix(pending) ? Color.accentColor : Color.secondary.opacity(0.2),
+                        in: RoundedRectangle(cornerRadius: 4))
+            }
             Image(systemName: icon)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)  // as in ⌘K, so every title starts at the same place whatever the icon
@@ -179,20 +193,11 @@ private struct Footer: View {
 /// ⌘K in capture: every kickoff that is on, filtered as you type. ↩ sends the draft with the selected one.
 struct KickoffsView: View {
     var model: AppModel
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(
-                    "Send with…", text: Binding(get: { model.kickoffFilter }, set: { model.setKickoffFilter($0) })
-                )
-                .textFieldStyle(.plain)
-                .focused($focused)
-            }
-            .font(.system(size: 17))
-            .padding(.horizontal, 8)
+            FilterField(
+                prompt: "Send with…", text: Binding(get: { model.kickoffFilter }, set: { model.setKickoffFilter($0) }))
             if model.kickoffs.isEmpty {
                 Text("Nothing on matches “\(model.kickoffFilter)”.").foregroundStyle(.secondary).padding(8)
             }
@@ -210,6 +215,25 @@ struct KickoffsView: View {
             Footer(["type to filter", "↑↓ move", "↩ send", "esc back to the draft"])
         }
         .padding(16)
+    }
+}
+
+/// The field at the top of ⌘K and of the list's / filter, focused as it appears so typing lands in it.
+private struct FilterField: View {
+    let prompt: String
+    let text: Binding<String>
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(prompt, text: text)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .accessibilityIdentifier("filter")
+        }
+        .font(.system(size: 17))
+        .padding(.horizontal, 8)
         .onAppear { DispatchQueue.main.async { focused = true } }
     }
 }
