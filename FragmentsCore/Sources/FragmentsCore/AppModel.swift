@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The panel's whole state machine: capture → keep, launch or ⌘K; list → open, attach, trash or ⌘,; detail → edit;
+/// The panel's whole state machine: capture → keep, launch or ⌘K; list → open, attach, title, trash or ⌘,; detail → edit;
 /// Actions → on/off, rebind, settings. Pure state plus `Command`s for the app shell to perform, so every path runs
 /// under `swift test`.
 @MainActor @Observable
@@ -29,6 +29,8 @@ public final class AppModel {
         case startDictation
         /// Run an action's program on a saved fragment: `start`, or `attach` to a launch.
         case start(ActionRun)
+        /// Tell a launch action its fragment's new title, staying in the list.
+        case retitle(ActionRun)
         /// Store one edit to an action's choices in the `actions` preference.
         case choose(String, ActionChoice.Change)
         /// Show the folder your actions live in.
@@ -68,6 +70,9 @@ public final class AppModel {
     /// ↩ on a text or folder setting: typing goes into `settingDraft` until ↩ saves it or esc drops it.
     public private(set) var isEditingSetting = false
     public var settingDraft = ""
+    /// t in the list: typing goes into `titleDraft` until ↩ saves it on the selected fragment or esc drops it.
+    public private(set) var isTitling = false
+    public var titleDraft = ""
 
     public init(store: FragmentStore) {
         self.store = store
@@ -111,6 +116,7 @@ public final class AppModel {
         reload()
         selection = min(selection, max(fragments.count - 1, 0))
         pendingHint = ""
+        isTitling = false
         mode = .list
     }
 
@@ -124,19 +130,48 @@ public final class AppModel {
         kickoffSelection = 0
     }
 
-    /// A launch action answered its start: keep the session on the fragment, so ↩ in the list comes back to it.
+    /// A launch action answered its start, or an attach: keep the session on the fragment, so ↩ in the list comes back
+    /// to it. An attach that found the same session changes nothing.
     public func started(_ id: Fragment.ID, session: Session) {
         // ponytail: reads the whole folder to find one file; a lookup by id if the folder ever gets large
-        guard var fragment = (try? store.all())?.first(where: { $0.id == id }) else { return }
+        guard var fragment = (try? store.all())?.first(where: { $0.id == id }), fragment.session != session else {
+            return
+        }
         fragment.session = session
         try? store.save(fragment)
         if mode == .list { reload() }
     }
 
+    /// What the shell asks when the list opens: each launch action, with every fragment it started, for `titles`.
+    public var titleRuns: [TitlesRun] {
+        actions.filter { $0.kind == .launch }.compactMap { action in
+            let launched = fragments.filter { $0.action == action.id && $0.session != nil }
+            guard !launched.isEmpty else { return nil }
+            return TitlesRun(
+                program: action.program, input: TitlesInput(fragments: launched, settings: action.settings))
+        }
+    }
+
+    /// A launch action answered `titles` for `asked`: saves each title that changed where the session runs, unless
+    /// you retitled that fragment here since the question went out.
+    public func adoptTitles(_ titles: [Fragment.ID: String?], asked: [Fragment]) {
+        let saved = (try? store.all()) ?? []
+        var changed = false
+        for question in asked {
+            guard let title = titles[question.id], var fragment = saved.first(where: { $0.id == question.id }),
+                fragment.title == question.title, fragment.title != title
+            else { continue }
+            fragment.title = title
+            try? store.save(fragment)
+            changed = true
+        }
+        if changed, mode == .list { reload() }
+    }
+
     public func handle(_ key: Key) -> Command {
         switch mode {
         case .capture: return handleCapture(key)
-        case .list: return handleList(key)
+        case .list: return isTitling ? handleTitling(key) : handleList(key)
         case .detail(let id): return handleDetail(key, id: id)
         case .kickoffs: return handleKickoffs(key)
         case .actions: return isRecording ? handleRecording(key) : handleActions(key)
@@ -240,6 +275,10 @@ public final class AppModel {
             case "j": move(1)
             case "k": move(-1)
             case "x": trashSelected()
+            case "t":
+                guard fragments.indices.contains(selection) else { break }
+                titleDraft = fragments[selection].title ?? ""
+                isTitling = true
             case "n":
                 beginCapture()
                 return .startDictation
@@ -285,15 +324,48 @@ public final class AppModel {
         guard fragments.indices.contains(index) else { return .handled }
         let fragment = fragments[index]
         selection = index
-        if fragment.session != nil,
-            let action = actions.first(where: { $0.id == fragment.action && $0.kind == .launch })
-        {
-            let input = ActionInput(fragment: fragment, settings: action.settings)
-            return .start(ActionRun(name: action.name, program: action.program, verb: .attach, input: input))
-        }
+        if let run = launchRun(.attach, fragment) { return .start(run) }
         draft = fragment.text
         mode = .detail(fragment.id)
         return .handled
+    }
+
+    private func handleTitling(_ key: Key) -> Command {
+        switch key {
+        case .escape:
+            isTitling = false
+            return .handled
+        case .enter:
+            isTitling = false
+            return retitleSelected()
+        default:
+            return .ignored  // typing goes to the field
+        }
+    }
+
+    /// Saves the draft as the selected fragment's title; an empty one clears it. A launched fragment's action hears
+    /// about it, so Rex can rename the session.
+    private func retitleSelected() -> Command {
+        guard fragments.indices.contains(selection) else { return .handled }
+        var fragment = fragments[selection]
+        // One line, because the title is a line of the front matter.
+        let title = titleDraft.components(separatedBy: .newlines).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        fragment.title = title.isEmpty ? nil : title
+        guard fragment.title != fragments[selection].title else { return .handled }
+        try? store.save(fragment)
+        reload()
+        return launchRun(.retitle, fragment).map { .retitle($0) } ?? .handled
+    }
+
+    /// `verb` for the launch action that started `fragment`; nil when it started nothing or its action is gone.
+    private func launchRun(_ verb: ActionVerb, _ fragment: Fragment) -> ActionRun? {
+        guard fragment.session != nil,
+            let action = actions.first(where: { $0.id == fragment.action && $0.kind == .launch })
+        else { return nil }
+        let input = ActionInput(fragment: fragment, settings: action.settings)
+        return ActionRun(
+            name: action.name, program: action.program, verb: verb, input: input, returnsSession: verb == .attach)
     }
 
     private func trashSelected() {

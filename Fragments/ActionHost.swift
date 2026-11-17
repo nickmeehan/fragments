@@ -79,6 +79,17 @@ final class ActionHost {
         }
     }
 
+    /// Asks a launch action what its sessions are called now; `adopt` gets the answer. Quiet when it fails: the list
+    /// keeps the titles it has.
+    func titles(_ run: TitlesRun, adopt: @escaping @MainActor @Sendable ([String: String?]) -> Void) {
+        Task.detached(priority: .utility) {
+            let input = (try? ActionWire.encoder.encode(run.input)) ?? Data()
+            let result = Shell.run([run.program.path, ActionVerb.titles.rawValue], input: input, timeout: 10)
+            guard result.status == 0, let titles = ActionBuild.titles(in: result.output) else { return }
+            await adopt(titles)
+        }
+    }
+
     private static func fail(_ message: String, _ detail: String) {
         let alert = NSAlert()
         alert.messageText = message

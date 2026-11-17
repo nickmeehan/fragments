@@ -77,7 +77,7 @@ final class CaptureFlowTests: XCTestCase {
     }
 
     /// A stand-in for `rex` that logs each call to `rex.log` and answers like Rex: a new session, a live one for
-    /// `session inspect`, one connected app, and a select that works.
+    /// `session inspect`, the file `sessions` for `session ls`, one connected app, and a select that works.
     private func addFakeRex() throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let fake = folder.appending(path: "rex")
@@ -86,6 +86,7 @@ final class CaptureFlowTests: XCTestCase {
         case "$1 $2" in
         "new "*) echo '{"session_id": "session:new"}' ;;
         "session inspect") echo '{"session_id": "session:alive"}' ;;
+        "session ls") cat '\(folder.path)/sessions' 2> /dev/null || echo '{"sessions": []}' ;;
         "client list") echo '{"clients": [{"client_id": "c1", "info": {"kind": "app"},
             "connection_state": "connected"}]}' ;;
         esac
@@ -93,7 +94,8 @@ final class CaptureFlowTests: XCTestCase {
     }
 
     /// Rex is the bundled launch action on ⌘⇧↩. Its settings start from the old Settings → Claude Code values, which
-    /// the launch arguments set; the session it starts is kept, and ↩ in the list shows it again.
+    /// the launch arguments set; the session it starts is kept, ↩ in the list shows it again, t names it, and a name
+    /// changed in Rex comes back as the title.
     func testRexStartsASessionAndComesBackToIt() throws {
         try addFakeRex()
         var app = launch(defaults: ["projectFolder": folder.path, "effort": "high"])
@@ -110,8 +112,9 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertTrue(waitForFile(file, containing: "folder: \(folder.path)"), "the session should be kept")
         let contents = try String(contentsOf: folder.appending(path: file), encoding: .utf8)
         XCTAssertTrue(contents.contains("action: rex"))
-        let session = contents.split(separator: "\n").first { $0.hasPrefix("session: ") }?.dropFirst(9)
-        XCTAssertNotNil(session.flatMap { UUID(uuidString: String($0)) }, "Claude's session id in \(contents)")
+        XCTAssertTrue(contents.contains("session: session:new\n"), "Rex's session in \(contents)")
+        let resume = contents.split(separator: "\n").first { $0.hasPrefix("resume: ") }?.dropFirst(8)
+        XCTAssertNotNil(resume.flatMap { UUID(uuidString: String($0)) }, "Claude's conversation in \(contents)")
         let log = try String(contentsOf: folder.appending(path: "rex.log"), encoding: .utf8)
         XCTAssertTrue(log.hasPrefix("new frag-\(file.dropLast(3)) --cwd \(folder.path) "), log)
         XCTAssertTrue(log.contains("'--effort' 'high' '--' 'say hello'"), log)
@@ -121,6 +124,29 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["say hello"].waitForExistence(timeout: 5))
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(waitForFile("rex.log", containing: "session_id=session:alive"), "↩ should show the session")
+        XCTAssertTrue(
+            waitForFile(file, containing: "session: session:alive\n"), "attach hands back the session it showed")
+
+        app = launch(arguments: ["--list"])
+        XCTAssertTrue(app.staticTexts["say hello"].waitForExistence(timeout: 5))
+        app.typeKey("t", modifierFlags: [])
+        XCTAssertTrue(app.textFields["title"].waitForExistence(timeout: 3))
+        app.typeText("Greeting")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(app.staticTexts["Greeting"].waitForExistence(timeout: 3), "the list should stay, titled")
+        XCTAssertTrue(waitForFile(file, containing: "title: Greeting"), "the title should be saved")
+        XCTAssertTrue(
+            waitForFile(
+                "rex.log",
+                containing: "session inspect --json -- session:alive\nsession rename -- session:alive Greeting"
+            ),
+            "the session should be renamed after the title")
+
+        try #"{"sessions": [{"session_id": "session:alive", "label": "Renamed in Rex"}]}"#
+            .write(to: folder.appending(path: "sessions"), atomically: true, encoding: .utf8)
+        app = launch(arguments: ["--list"])
+        XCTAssertTrue(app.staticTexts["Renamed in Rex"].waitForExistence(timeout: 10), "Rex's name should come back")
+        XCTAssertTrue(waitForFile(file, containing: "title: Renamed in Rex"), "and be saved as the title")
     }
 
     // MARK: Actions
@@ -251,9 +277,10 @@ final class CaptureFlowTests: XCTestCase {
                     Session(id: "T-1")
                 }
 
-                func attach(_ fragment: Fragment, to session: Session) throws {
+                func attach(_ fragment: Fragment, to session: Session) throws -> Session {
                     try "attach \\(session.id)"
                         .write(toFile: "\(folder.path)/attached.txt", atomically: true, encoding: .utf8)
+                    return Session(id: "T-2")
                 }
             }
             """)
@@ -273,6 +300,7 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["file a ticket"].waitForExistence(timeout: 5))
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(waitForFile("attached.txt", containing: "attach T-1"))
+        XCTAssertTrue(waitForFile(fragment, containing: "session: T-2"), "attach's session should replace start's")
     }
 
     /// The global hotkey is the real entry point: nothing else is frontmost when it fires.

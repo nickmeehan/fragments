@@ -25,7 +25,18 @@ public protocol RunAction: Action {
 /// the session `start` returned, which Fragments keeps in the fragment's file.
 public protocol LaunchAction: Action {
     func start(_ fragment: Fragment) throws -> Session
-    func attach(_ fragment: Fragment, to session: Session) throws
+    /// Returns the session to keep: the same one, or the one it opened in its place.
+    func attach(_ fragment: Fragment, to session: Session) throws -> Session
+    /// t in the list gave the fragment a new title, or took it away. Does nothing unless you write it.
+    func retitle(_ fragment: Fragment, in session: Session) throws
+    /// The list opened: by fragment id, the title each one's session has now, nil for one with no name of its own.
+    /// Leave out any you can't tell about; Fragments saves the titles that changed. Nothing unless you write it.
+    func titles(of fragments: [Fragment]) throws -> [Fragment.ID: String?]
+}
+
+extension LaunchAction {
+    public func retitle(_ fragment: Fragment, in session: Session) throws {}
+    public func titles(of fragments: [Fragment]) throws -> [Fragment.ID: String?] { [:] }
 }
 
 /// A key combination written the way Settings writes hotkeys: `cmd+option+return`, `cmd+r`, `cmd+1`.
@@ -41,6 +52,7 @@ public struct Chord: Equatable, Sendable, ExpressibleByStringLiteral {
 /// The interaction types, as the manifest names them.
 public enum ActionType: String, Codable, Sendable {
     case open, run, launch
+
 }
 
 // MARK: Entry points
@@ -65,7 +77,7 @@ extension RunAction {
 
 extension LaunchAction {
     public static func main() {
-        ActionProgram.main(Self.self, type: .launch) { action, verb, fragment in
+        ActionProgram.main(Self.self, type: .launch, titles: ActionProgram.titles) { action, verb, fragment in
             try ActionProgram.launch(action, verb, fragment)
         }
     }

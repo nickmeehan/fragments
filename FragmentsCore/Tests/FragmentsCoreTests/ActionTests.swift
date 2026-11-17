@@ -36,10 +36,8 @@ private func respond(
         })
 }
 
-/// What `Ticket.attach` was handed, for the one test that checks it.
-nonisolated(unsafe) private var attachedSessions: [String] = []
-
-/// A launch action, the way someone would write one: it starts a session and can come back to it.
+/// A launch action, the way someone would write one: it starts a session and can come back to it. It writes neither
+/// retitle nor titles.
 private struct Ticket: LaunchAction {
     static let name = "Ticket"
     static let chord: Chord = "cmd+t"
@@ -47,13 +45,22 @@ private struct Ticket: LaunchAction {
     @Setting("Folder", kind: .folder) var folder = "/work"
 
     func start(_ fragment: Fragment) throws -> Session { Session(id: "T-\(fragment.text.count)", folder: folder) }
-    func attach(_ fragment: Fragment, to session: Session) throws { attachedSessions.append(session.id) }
+    func attach(_ fragment: Fragment, to session: Session) throws -> Session {
+        Session(id: session.id + " again", folder: folder)
+    }
 }
 
 private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
     let data = try ActionWire.encoder.encode(ActionInput(fragment: fragment))
     return try ActionProgram.respond(
         to: verb, input: { data }, as: Ticket.self, type: .launch, perform: ActionProgram.launch)
+}
+
+private func launchTitles(_ fragments: [Fragment]) throws -> Data? {
+    let data = try ActionWire.encoder.encode(TitlesInput(fragments: fragments))
+    return try ActionProgram.respond(
+        to: "titles", input: { data }, as: Ticket.self, type: .launch, titles: ActionProgram.titles,
+        perform: ActionProgram.launch)
 }
 
 @Suite struct ActionProgramTests {
@@ -124,16 +131,46 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
         #expect(ActionProgram.manifest(of: Ticket.self, type: .launch).type == "launch")
     }
 
-    @Test func attachGetsTheSessionBack() throws {
+    /// Attach gets the session and prints the one to keep in its place.
+    @Test func attachGetsTheSessionBackAndPrintsTheOneToKeep() throws {
         var started = sample
         started.session = Session(id: "T-7")
-        attachedSessions = []
-        #expect(try launch("attach", started) == nil)
-        #expect(attachedSessions == ["T-7"])
+        let output = try #require(try launch("attach", started))
+        #expect(
+            try ActionWire.decoder.decode(LaunchResult.self, from: output).session
+                == Session(id: "T-7 again", folder: "/work"))
+    }
+
+    /// One run answers for every fragment; an action that doesn't write titles says nothing about any of them.
+    @Test func titlesAnswerForEveryFragmentAtOnce() throws {
+        var started = sample
+        started.session = Session(id: "T-7")
+        let output = try #require(try launchTitles([started, sample]))
+        #expect(try ActionWire.decoder.decode(TitlesResult.self, from: output) == TitlesResult(titles: [:]))
+        #expect(throws: ActionProgram.Failure.self) { try respond("titles", ActionInput(fragment: sample)) }
+    }
+
+    /// Null means "no title" and an absent id means "can't tell": both survive the wire.
+    @Test func noTitleAndUnknownStayApartOnTheWire() throws {
+        let result = TitlesResult(titles: ["a": "Login bug", "b": nil])
+        let data = try ActionWire.encoder.encode(result)
+        #expect(String(decoding: data, as: UTF8.self) == #"{"titles":{"a":"Login bug","b":null}}"#)
+        let decoded = try ActionWire.decoder.decode(TitlesResult.self, from: data)
+        #expect(decoded == result)
+        #expect(decoded.titles["c"] == nil)
+        #expect(decoded.titles["b"] == .some(nil))
     }
 
     @Test func attachWithoutASessionSaysSo() {
         #expect(throws: ActionProgram.Failure.self) { try launch("attach", sample) }
+        #expect(throws: ActionProgram.Failure.self) { try launch("retitle", sample) }
+    }
+
+    /// Ticket doesn't write retitle: it still compiles, and a retitle does nothing.
+    @Test func retitleDoesNothingUnlessTheActionWritesIt() throws {
+        var started = sample
+        started.session = Session(id: "T-7")
+        #expect(try launch("retitle", started) == nil)
     }
 
     /// Open and run actions hand the thought off; there is nothing to come back to.
@@ -180,7 +217,8 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
     private let folder = FileManager.default.temporaryDirectory.appending(path: "rex-test-\(UUID())")
     private var log: String { (try? String(contentsOf: folder.appending(path: "log"), encoding: .utf8)) ?? "" }
 
-    /// `alive` makes `session inspect` find the session; `select-fails` makes Rex refuse to show it.
+    /// `alive` makes `session inspect` find the session; `select-fails` makes Rex refuse to show it; `ls-fails` makes
+    /// `session ls` fail. `session ls` prints the file `sessions`.
     private func rex(settings: [String: String] = [:], _ flags: String...) throws -> Rex {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for flag in flags { FileManager.default.createFile(atPath: folder.appending(path: flag).path, contents: nil) }
@@ -191,6 +229,7 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
         case "$1 $2" in
         "new "*) echo '{"session_id": "session:new"}' ;;
         "session inspect") [ -e alive ] && echo '{"session_id": "session:alive"}' || { echo not found; exit 3; } ;;
+        "session ls") [ -e ls-fails ] && { echo 'no server'; exit 1; } || cat sessions ;;
         "client list") echo '{"clients": [{"client_id": "client:app", "info": {"kind": "app"},
             "connection_state": "connected"}]}' ;;
         *) if [ -e select-fails ]; then echo 'Turn on Remote Control'; exit 1; fi ;;
@@ -237,37 +276,129 @@ private func launch(_ verb: String, _ fragment: Fragment) throws -> Data? {
                 """)
     }
 
+    /// The session is Rex's; what resumes it is Claude's conversation, chosen here.
     @Test func startOpensASessionNamedAfterTheFragmentAndShowsIt() throws {
         let session = try rex(settings: ["folder": folder.path]).start(sample)
-        #expect(UUID(uuidString: session.id) != nil)
+        #expect(session.id == "session:new")
+        let conversation = try #require(session.resume)
+        #expect(UUID(uuidString: conversation) != nil)
         #expect(session.folder == folder.path)
         let calls = log.split(separator: "\n")
         #expect(calls.first?.hasPrefix("new frag-20261111-090000-00ff --cwd \(folder.path) --shell zsh") == true)
-        #expect(log.contains("'claude' '--session-id' '\(session.id)' '--' 'buy stamps'"))
+        #expect(log.contains("'claude' '--session-id' '\(conversation)' '--' 'buy stamps'"))
         #expect(calls.suffix(2) == ["client list --json", "-C client:app do session.select session_id=session:new"])
     }
 
+    /// A fragment from before `resume:` kept Claude's id as its session: found by the name it was started under, and
+    /// handed back in the new shape.
     @Test func attachShowsTheSessionWhileItIsAlive() throws {
-        try rex("alive").attach(sample, to: Session(id: "sid", folder: "/p"))
+        let kept = try rex("alive").attach(sample, to: Session(id: "sid", folder: "/p"))
         #expect(
             log.split(separator: "\n") == [
-                "session inspect frag-20261111-090000-00ff --json", "client list --json",
+                "session inspect --json -- frag-20261111-090000-00ff", "client list --json",
                 "-C client:app do session.select session_id=session:alive",
             ])
+        #expect(kept == Session(id: "session:alive", folder: "/p", resume: "sid"))
     }
 
+    /// By Rex's id first, so a session renamed in Rex is still found.
+    @Test func attachFindsTheSessionByRexsIdWhateverItIsCalled() throws {
+        let session = Session(id: "session:started", resume: "sid")
+        try _ = rex("alive").attach(sample, to: session)
+        #expect(log.hasPrefix("session inspect --json -- session:started\nclient list --json\n"))
+    }
+
+    /// Gone (a reboot): a new session resumes the conversation, and its id is handed back to be kept.
     @Test func attachResumesTheConversationWhenTheSessionIsGone() throws {
-        try rex().attach(sample, to: Session(id: "sid", folder: folder.path))
-        #expect(log.contains("new frag-20261111-090000-00ff --cwd \(folder.path)"))
+        let kept = try rex().attach(sample, to: Session(id: "session:gone", folder: folder.path, resume: "sid"))
+        #expect(
+            log.hasPrefix(
+                "session inspect --json -- session:gone\nsession inspect --json -- frag-20261111-090000-00ff\n"
+                    + "new frag-20261111-090000-00ff --cwd \(folder.path)"))
         #expect(log.contains("'claude' '--resume' 'sid'"))
         #expect(log.hasSuffix("do session.select session_id=session:new\n"))
+        #expect(kept == Session(id: "session:new", folder: folder.path, resume: "sid"))
+    }
+
+    /// The session it opened is open whether or not Rex will show it, so the fragment keeps it and Rex comes forward.
+    @Test func aSessionOpenedAgainIsKeptWhenRexWontShowIt() throws {
+        let kept = try rex("select-fails").attach(sample, to: Session(id: "session:gone", resume: "sid"))
+        #expect(kept.id == "session:new")
+    }
+
+    /// Opened again, a titled fragment's session takes the title by a rename, so one that starts with a dash is safe.
+    @Test func aSessionOpenedAgainTakesTheTitle() throws {
+        var titled = sample
+        titled.title = "-fix it's broken"
+        try _ = rex().attach(titled, to: Session(id: "sid", folder: folder.path))
+        let calls = log.split(separator: "\n")
+        #expect(
+            calls.prefix(2) == [
+                "session inspect --json -- -fix it's broken", "session inspect --json -- frag-20261111-090000-00ff",
+            ])
+        #expect(calls.contains("session rename -- session:new -fix it's broken"))
+    }
+
+    @Test func retitleRenamesTheRunningSession() throws {
+        var titled = sample
+        titled.title = "Login bug"
+        try rex("alive").retitle(titled, in: Session(id: "session:started", resume: "sid"))
+        #expect(
+            log.split(separator: "\n") == [
+                "session inspect --json -- session:started", "session rename -- session:alive Login bug",
+            ])
+        try rex("alive").retitle(sample, in: Session(id: "session:started", resume: "sid"))
+        #expect(log.hasSuffix("session rename -- session:alive frag-20261111-090000-00ff\n"))
+    }
+
+    /// Nothing running: nothing to rename. Attach opens it again under the new title.
+    @Test func retitleLeavesASessionThatIsGone() throws {
+        var titled = sample
+        titled.title = "Login bug"
+        try rex().retitle(titled, in: Session(id: "session:gone", resume: "sid"))
+        #expect(!log.contains("rename"))
+        #expect(!log.contains("new "))
+    }
+
+    /// One `rex session ls` answers for every fragment. A name of its own is the title, `frag-<id>` is none, and a
+    /// session Rex doesn't list or a fragment from before `resume:` says nothing.
+    @Test func titlesAreTheNamesRexListsNow() throws {
+        let rex = try rex()
+        try """
+        {"sessions": [{"session_id": "session:a", "label": "Renamed in Rex"},
+          {"session_id": "session:b", "label": "frag-20261111-090000-00ff"}]}
+        """.write(to: folder.appending(path: "sessions"), atomically: true, encoding: .utf8)
+        func launched(_ id: String, _ session: Session) -> Fragment {
+            var fragment = sample
+            fragment.id = id
+            fragment.session = session
+            return fragment
+        }
+        let titles = try rex.titles(of: [
+            launched("x", Session(id: "session:a", resume: "s1")),
+            launched("20261111-090000-00ff", Session(id: "session:b", resume: "s2")),
+            launched("y", Session(id: "session:gone", resume: "s3")),
+            launched("z", Session(id: "session:a")),
+        ])
+        #expect(titles == ["x": "Renamed in Rex", "20261111-090000-00ff": nil])
+        #expect(log == "session ls --json\n")
+    }
+
+    @Test func titlesSayNothingWhenRexIsntAnswering() throws {
+        let titles = try rex("ls-fails").titles(of: [sample])
+        #expect(titles.isEmpty)
+    }
+
+    @Test func retitleSaysWhyRexWouldNotRename() throws {
+        let rex = try rex("alive", "select-fails")
+        #expect(throws: Rex.Problem.self) { try rex.retitle(sample, in: Session(id: "sid")) }
     }
 
     @Test func attachSaysWhyRexWouldNotShowTheSession() throws {
         let rex = try rex("alive", "select-fails")
         #expect(throws: Rex.Problem.self) { try rex.attach(sample, to: Session(id: "sid")) }
         do {
-            try rex.attach(sample, to: Session(id: "sid"))
+            _ = try rex.attach(sample, to: Session(id: "sid"))
         } catch {
             #expect("\(error)".hasSuffix("Turn on Remote Control\n"))
         }

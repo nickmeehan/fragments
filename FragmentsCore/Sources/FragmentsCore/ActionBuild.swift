@@ -34,9 +34,14 @@ public enum ActionBuild {
         decode(Manifest.self, in: output)
     }
 
-    /// The session in a launch action's `<program> start` output, ignoring anything printed around it.
+    /// The session in a launch action's `<program> start` or `attach` output, ignoring anything printed around it.
     public static func session(in output: String) -> Session? {
         decode(LaunchResult.self, in: output)?.session
+    }
+
+    /// The titles in a launch action's `<program> titles` output, ignoring anything printed around it.
+    public static func titles(in output: String) -> [String: String?]? {
+        decode(TitlesResult.self, in: output)?.titles
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, in output: String) -> T? {
