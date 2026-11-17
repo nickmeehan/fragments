@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeys: [HotKey] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        quitOtherCopies()
         Prefs.register()
         Prefs.moveClaudeCodeSettingsToRex()
         registerHotKeys()
@@ -34,6 +35,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: break
             }
         }
+    }
+
+    /// The copy you launched last wins, so a release and a `bin/run` build never fight over the hotkey. A copy on a
+    /// test folder (`FRAGMENTS_DIR`: UI tests, `bin/renders`) leaves yours running.
+    private func quitOtherCopies() {
+        guard ProcessInfo.processInfo.environment["FRAGMENTS_DIR"] == nil, let id = Bundle.main.bundleIdentifier
+        else { return }
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).map(\.processIdentifier)
+            .filter { $0 != getpid() }
+        // A signal, like `bin/run`'s pkill: NSRunningApplication.terminate() is an Apple Event, which needs a grant.
+        for pid in others { kill(pid, SIGTERM) }
+        // Their hotkeys free up only once they've exited.
+        let deadline = Date.now + 2
+        while others.contains(where: { kill($0, 0) == 0 }), Date.now < deadline { usleep(20_000) }
     }
 
     @objc private func prefsChanged() {
