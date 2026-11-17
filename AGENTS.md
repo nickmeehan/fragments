@@ -14,9 +14,9 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
   `OpenAction`/`RunAction`/`LaunchAction` protocols, `@Setting`, the JSON both sides speak. Foundation only: the app
   ships it as source and compiles it with the user's `swiftc`, so it must build on its own. Changing it changes a
   public interface (`Manifest.protocol`).
-- `FragmentsCore/Actions/<id>/` — the bundled actions (Cowork; Rex, which starts Claude Code in a Rex session),
-  shaped exactly like a user's `~/.fragments/actions/<id>/`. The app compiles both kinds the same way (`ActionBuild`,
-  `Fragments/ActionHost`).
+- `FragmentsCore/Actions/<id>/` — the bundled actions (Cowork, which hands the thought to a Claude Cowork task and
+  opens that task again; Rex, which starts Claude Code in a Rex session), shaped exactly like a user's
+  `~/.fragments/actions/<id>/`. The app compiles both kinds the same way (`ActionBuild`, `Fragments/ActionHost`).
 - `Fragments/` — the app shell: hotkeys (Carbon), the floating panel, SwiftUI views, Settings,
   Wispr Flow trigger, process execution. Thin; it maps events into Core and performs Core's Commands.
 - `FragmentsUITests/` — XCUITests that press real keys in the built app (`bin/ci --ui`).
@@ -25,8 +25,9 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 - `project.yml` — XcodeGen spec; the .xcodeproj is generated and git-ignored. Never edit the project
   file by hand; add files to disk and regenerate (`bin/setup`).
 - Fragments on disk: `~/.fragments/<id>.md` with YAML-ish front matter; `~/.fragments/actions/<id>/*.swift` are the
-  user's actions, compiled into `~/Library/Caches/Fragments/actions/`. Override with `FRAGMENTS_DIR` (tests do), and
-  `rex` with `FRAGMENTS_REX` (UI tests point it at a stand-in).
+  user's actions, compiled into `~/Library/Caches/Fragments/actions/`. Override with `FRAGMENTS_DIR` (tests do),
+  `rex` with `FRAGMENTS_REX` (UI tests point it at a stand-in), and Cowork's `open` and Claude's cache with
+  `FRAGMENTS_OPEN` and `FRAGMENTS_CLAUDE_CACHE` (core tests).
 
 ## Commands
 

@@ -191,23 +191,123 @@ private func launchTitles(_ fragments: [Fragment]) throws -> Data? {
     }
 }
 
+/// A folder standing in for Claude's IndexedDB: each file is written as given, bytes and all.
+private func claudeCache(_ files: [String: Data]) throws -> URL {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "claude-cache-\(UUID())")
+    for (name, data) in files {
+        let file = folder.appending(path: name)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: file)
+    }
+    return folder
+}
+
+private func bytes(_ parts: String...) -> Data {
+    Data(parts.joined().utf8)
+}
+
 @Suite struct CoworkTests {
-    @Test func coworkIsAnOpenActionOnCommandOptionReturn() {
-        let manifest = ActionProgram.manifest(of: Cowork.self, type: .open)
-        #expect(manifest == Manifest(name: "Cowork", chord: "cmd+option+return", type: "open"))
+    @Test func coworkIsALaunchActionOnCommandOptionReturn() {
+        let manifest = ActionProgram.manifest(of: Cowork.self, type: .launch)
+        #expect(manifest == Manifest(name: "Cowork", chord: "cmd+option+return", type: "launch"))
     }
 
-    @Test func theLinkCarriesTheThoughtFullyEscaped() throws {
+    @Test func theDraftLinkCarriesTheThoughtFullyEscaped() throws {
         let text = "Draft the Q2 update: 1+1 & \"why\"?\nsecond line — caf\u{E9}"
         var fragment = sample
         fragment.text = text
-        let url = Cowork().link(for: fragment)
+        let url = Cowork.draft(for: fragment)
         let escaped =
             "Draft%20the%20Q2%20update%3A%201%2B1%20%26%20%22why%22%3F%0A"
             + "second%20line%20%E2%80%94%20caf%C3%A9"
         #expect(url.absoluteString == "claude://cowork/new?q=" + escaped)
         let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
         #expect(components.queryItems == [URLQueryItem(name: "q", value: text)])
+        #expect(Cowork.task("cse_01AA").absoluteString == "claude://claude.ai/cowork/cse_01AA")
+    }
+
+    /// Shaped like Claude's cache on 2026-11-17: an id as a length-prefixed string (`"`, 28, the id, then the next
+    /// field's type letter), a hundred-odd bytes from the prompt the task began with.
+    @Test func aTaskIsFoundByItsOpeningWordsNearestFirst() throws {
+        let filler = String(repeating: "\u{1}x", count: 60)
+        let first = "Draft the Q2 update for Arbor, then the deck"
+        let cache = try claudeCache([
+            "leveldb/000507.log": bytes(
+                "\"\u{1c}cse_01AAAAAAAAAAAAAAAAAAAAAAN", filler, first, filler,
+                "e:cse_01BBBBBBBBBBBBBBBBBBBBBB\"", filler, "buy stamps on the way home"),
+            "blob/a7/8f/8fea": bytes(String(repeating: filler, count: 9), "the end"),
+        ])
+        #expect(Cowork.taskID(startingWith: first + "\nmore", in: cache) == "cse_01AAAAAAAAAAAAAAAAAAAAAA")
+        #expect(Cowork.taskID(startingWith: "buy stamps on the way home", in: cache) == "cse_01BBBBBBBBBBBBBBBBBBBBBB")
+        #expect(Cowork.taskID(startingWith: "never sent", in: cache) == nil)
+        #expect(Cowork.taskID(startingWith: "the end", in: cache) == nil)  // no id within 1 KB
+        #expect(Cowork.taskID(startingWith: "  \n", in: cache) == nil)
+    }
+
+    /// A prompt kept as two-byte text, or as JSON that escapes its quotes, is still found by its opening words.
+    @Test func aTaskIsFoundWhateverTheEncoding() throws {
+        var twoByte = Data("\"\u{1c}cse_01AAAAAAAAAAAAAAAAAAAAAA".utf8)
+        twoByte.append("Café — the Q4 invoice".data(using: .utf16LittleEndian)!)
+        let cache = try claudeCache([
+            "a": twoByte, "b": bytes(#"{"id":"cse_01BBBBBBBBBBBBBBBBBBBBBB","prompt":"Ask \"Arbor\" why"}"#),
+        ])
+        #expect(Cowork.taskID(startingWith: "Café — the Q4 invoice", in: cache) == "cse_01AAAAAAAAAAAAAAAAAAAAAA")
+        #expect(Cowork.taskID(startingWith: "Ask \"Arbor\" why", in: cache) == "cse_01BBBBBBBBBBBBBBBBBBBBBB")
+    }
+
+    /// The length byte caps an id the next field's letter follows; a JSON id ends at its quote; a stub is no id.
+    @Test func idsAreReadWholeAndNoFurther() {
+        let ids = Cowork.taskIDs(
+            in: bytes("cse_short \"\u{1c}cse_01AAAAAAAAAAAAAAAAAAAAAAN \"cse_01BBBBBBBBBBBBBBBBBBBBBB\" cse_"))
+        #expect(ids.map(\.id) == ["cse_01AAAAAAAAAAAAAAAAAAAAAA", "cse_01BBBBBBBBBBBBBBBBBBBBBB"])
+        #expect(ids.first?.at == 12)
+    }
+}
+
+/// Cowork against a stand-in `open` (`FRAGMENTS_OPEN`) that logs each link, and a stand-in cache
+/// (`FRAGMENTS_CLAUDE_CACHE`). Serial, because both are named in the process environment.
+@Suite(.serialized) struct CoworkLaunchTests {
+    private let folder = FileManager.default.temporaryDirectory.appending(path: "cowork-test-\(UUID())")
+    private var opened: [String] {
+        ((try? String(contentsOf: folder.appending(path: "log"), encoding: .utf8)) ?? "").split(separator: "\n").map(
+            String.init)
+    }
+
+    private func cowork(cache: [String: Data] = [:]) throws -> Cowork {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let standIn = folder.appending(path: "open")
+        try "printf '%s\\n' \"$1\" >> '\(folder.path)/log'".write(to: standIn, atomically: true, encoding: .utf8)
+        setenv("FRAGMENTS_OPEN", standIn.path, 1)
+        setenv("FRAGMENTS_CLAUDE_CACHE", try claudeCache(cache).path, 1)
+        return Cowork()
+    }
+
+    @Test func startOpensADraftAndKeepsTheSessionAsOne() throws {
+        let session = try cowork().start(sample)
+        #expect(session == Session(id: "draft"))
+        #expect(opened == ["claude://cowork/new?q=buy%20stamps"])
+    }
+
+    /// Sent since: found by its opening words, opened, and handed back to be kept.
+    @Test func attachFindsTheSentTaskAndHandsItBack() throws {
+        let cowork = try cowork(cache: ["log": bytes("\"\u{1c}cse_01AAAAAAAAAAAAAAAAAAAAAAS\u{4}", "buy stamps")])
+        let kept = try cowork.attach(sample, to: Session(id: "draft"))
+        #expect(kept == Session(id: "cse_01AAAAAAAAAAAAAAAAAAAAAA"))
+        #expect(opened == ["claude://claude.ai/cowork/cse_01AAAAAAAAAAAAAAAAAAAAAA"])
+    }
+
+    /// A known task opens straight away, with no look in the cache.
+    @Test func attachOpensAKnownTask() throws {
+        let kept = try cowork().attach(sample, to: Session(id: "cse_01BBBBBBBBBBBBBBBBBBBBBB"))
+        #expect(kept == Session(id: "cse_01BBBBBBBBBBBBBBBBBBBBBB"))
+        #expect(opened == ["claude://claude.ai/cowork/cse_01BBBBBBBBBBBBBBBBBBBBBB"])
+    }
+
+    /// Never sent, or no longer cached: the thought opens as a draft again, and stays one.
+    @Test func attachOpensTheDraftAgainWhenClaudeHasNoTask() throws {
+        let kept = try cowork().attach(sample, to: Session(id: "draft"))
+        #expect(kept == Session(id: "draft"))
+        #expect(opened == ["claude://cowork/new?q=buy%20stamps"])
     }
 }
 
