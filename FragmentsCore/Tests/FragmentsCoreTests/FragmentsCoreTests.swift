@@ -470,6 +470,20 @@ private func temporaryStore() -> FragmentStore {
         #expect(try model.store.all().first?.session == Session(id: "new", resume: "conversation"))
     }
 
+    /// A row is a note until ↩ has something to come back to; then it wears that action's icon, or a launch's when
+    /// the action is gone.
+    @Test func aRowsIconIsANoteOrItsActions() {
+        let model = makeFullModel()
+        #expect(model.icon(for: Fragment(text: "note")) == "note.text")
+        #expect(model.icon(for: Fragment(text: "handed off", action: "cowork")) == "note.text")
+        #expect(
+            model.icon(for: Fragment(text: "bug", action: "ticket", session: Session(id: "1")))
+                == "arrow.uturn.backward.square")
+        #expect(
+            model.icon(for: Fragment(text: "old", action: "gone", session: Session(id: "1")))
+                == "arrow.uturn.backward.square")
+    }
+
     /// When the list opens, each launch action is asked about every fragment it started, in one run.
     @Test func theListAsksEachLaunchActionForItsTitles() throws {
         let model = makeFullModel()
@@ -566,7 +580,7 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.handle(.command(AppModel.kickoffsChord)) == .handled)
         #expect(model.mode == .kickoffs)
         #expect(model.kickoffs.map(\.name) == ["Cowork", "Remind", "Ticket"])
-        #expect(model.kickoffs.map(\.kind) == [.open, .run, .launch])
+        #expect(model.kickoffs.map(\.icon) == ["arrow.up.forward.app", "bolt", "arrow.uturn.backward.square"])
         #expect(model.handle(.char("r", [])) == .ignored)  // typing goes to the filter field
         _ = model.handle(.down)
         model.setKickoffFilter("REM")

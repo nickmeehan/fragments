@@ -42,7 +42,7 @@ public final class AppModel {
         public var id: String
         public var name: String
         public var chord: KeyCombo
-        public var kind: ActionType
+        public var icon: String
     }
 
     /// Built in: ⌘↩ keeps the thought and does nothing else.
@@ -96,11 +96,17 @@ public final class AppModel {
     /// What ⌘K offers: every action that is on, narrowed to names containing the filter.
     public var kickoffs: [Kickoff] {
         let all = actions.compactMap { action -> Kickoff? in
-            guard action.on, let chord = action.chord, let kind = action.kind else { return nil }
-            return Kickoff(id: action.id, name: action.name, chord: chord, kind: kind)
+            guard action.on, let chord = action.chord, action.kind != nil else { return nil }
+            return Kickoff(id: action.id, name: action.name, chord: chord, icon: action.icon)
         }
         guard !kickoffFilter.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(kickoffFilter) }
+    }
+
+    /// The icon on a fragment's row: a note, or the icon of the action ↩ comes back to (a launch's, if it's gone).
+    public func icon(for fragment: Fragment) -> String {
+        guard fragment.session != nil else { return "note.text" }
+        return actions.first { $0.id == fragment.action }?.icon ?? ActionType.launch.icon
     }
 
     public var selectedAction: ActionInfo? {

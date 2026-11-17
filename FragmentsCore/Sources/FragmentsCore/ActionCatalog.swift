@@ -69,6 +69,11 @@ public struct ActionInfo: Identifiable, Equatable, Sendable {
         manifest.flatMap { ActionType(rawValue: $0.type) }
     }
 
+    /// The SF Symbol it's drawn with: its own, else its kind's, and a run's bolt until it has compiled.
+    public var icon: String {
+        manifest?.icon ?? kind?.icon ?? ActionType.run.icon
+    }
+
     /// It never answered a manifest: the build failed, and `problem` says how.
     public var didNotCompile: Bool {
         manifest == nil && !isBuilding && problem != nil

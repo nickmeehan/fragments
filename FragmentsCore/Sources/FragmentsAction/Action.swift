@@ -8,6 +8,9 @@ public protocol Action {
     static var name: String { get }
     /// The key that sends a thought here: any key held with ⌘. Settings can rebind it.
     static var chord: Chord { get }
+    /// The SF Symbol drawn beside it in ⌘K and ⌘, Actions, and on the list rows of what a launch started: `terminal`.
+    /// Leave it out for its kind's (`ActionType.icon`). A name macOS doesn't have draws nothing.
+    static var icon: String { get }
     init()
 }
 
@@ -53,11 +56,21 @@ public struct Chord: Equatable, Sendable, ExpressibleByStringLiteral {
 public enum ActionType: String, Codable, Sendable {
     case open, run, launch
 
+    /// The icon of an action of this kind that names none: out of the app, done in a flash, or back to it with ↩.
+    public var icon: String {
+        switch self {
+        case .open: "arrow.up.forward.app"
+        case .run: "bolt"
+        case .launch: "arrow.uturn.backward.square"
+        }
+    }
 }
 
 // MARK: Entry points
 
 extension OpenAction {
+    public static var icon: String { ActionType.open.icon }
+
     public static func main() {
         ActionProgram.main(Self.self, type: .open) { action, _, fragment in
             try ActionProgram.open(action.link(for: fragment))
@@ -67,6 +80,8 @@ extension OpenAction {
 }
 
 extension RunAction {
+    public static var icon: String { ActionType.run.icon }
+
     public static func main() {
         ActionProgram.main(Self.self, type: .run) { action, _, fragment in
             try action.run(fragment)
@@ -76,6 +91,8 @@ extension RunAction {
 }
 
 extension LaunchAction {
+    public static var icon: String { ActionType.launch.icon }
+
     public static func main() {
         ActionProgram.main(Self.self, type: .launch, titles: ActionProgram.titles) { action, verb, fragment in
             try ActionProgram.launch(action, verb, fragment)

@@ -9,6 +9,7 @@ import FragmentsAction
 struct Cowork: LaunchAction {
     static let name = "Cowork"
     static let chord: Chord = "cmd+option+return"
+    static let icon = "bubble.left.and.text.bubble.right"
 
     /// A task gets its id only when you send it, so the session starts as a draft and the first ↩ finds the id.
     func start(_ fragment: Fragment) throws -> Session {
