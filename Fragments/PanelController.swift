@@ -96,14 +96,13 @@ final class PanelController {
     /// A submit waiting for Wispr Flow to type what it heard. Hiding drops it; pressing it again submits at once.
     private var holding: Key?
 
-    /// Once stopped, Wispr types what it heard into the editor a moment later; when it heard nothing, it types nothing.
-    /// Submit once the draft has changed and then held still for a tick, or at `deadline`.
-    private func submitWhenDictationLands(_ key: Key, since draft: String, landed: Bool = false, deadline: Date) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [self] in
+    /// Once stopped, Wispr pastes what it heard into the editor with one ⌘V through the clipboard, or nothing when it
+    /// heard nothing. Submit as soon as the draft changes, or at `deadline`.
+    private func submitWhenDictationLands(_ key: Key, since draft: String, deadline: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
             guard holding == key else { return }
-            let moved = model.draft != draft
-            if moved || !landed, Date.now < deadline {
-                return submitWhenDictationLands(key, since: model.draft, landed: landed || moved, deadline: deadline)
+            if model.draft == draft, Date.now < deadline {
+                return submitWhenDictationLands(key, since: draft, deadline: deadline)
             }
             holding = nil
             perform(model.handle(key))
