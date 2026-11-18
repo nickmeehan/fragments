@@ -289,11 +289,11 @@ private func temporaryStore() -> FragmentStore {
         model.showList()
         #expect(model.mode == .list)
         #expect(model.selection == 0)
-        #expect(model.handle(.char("j", [])) == .handled)
+        #expect(model.handle(.down) == .handled)
         #expect(model.handle(.down) == .handled)
         #expect(model.handle(.down) == .handled)
         #expect(model.selection == 2)
-        #expect(model.handle(.char("k", [])) == .handled)
+        #expect(model.handle(.up) == .handled)
         #expect(model.selection == 1)
         #expect(model.handle(.command(AppModel.jumpChords[2])) == .handled)
         #expect(model.mode == .detail("20260101-000001-0000"))
@@ -307,12 +307,12 @@ private func temporaryStore() -> FragmentStore {
         }
         model.showList()
         #expect(AppModel.jumpChords.map(\.symbols) == ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"])
-        // A stray letter or digit, ⌘⇧2 and ⌘0 open nothing.
+        // A letter or digit, ⌘⇧2 and ⌘0 open nothing: they go to the filter field.
         for key: Key in [
             .char("a", []), .char("2", []), .command(KeyCombo(modifiers: [.command, .shift], key: "2")),
             .command(KeyCombo(modifiers: .command, key: "0")),
         ] {
-            #expect(model.handle(key) == .handled)
+            #expect(model.handle(key) == .ignored)
             #expect(model.mode == .list)
         }
         #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "9"))) == .handled)
@@ -523,7 +523,7 @@ private func temporaryStore() -> FragmentStore {
         let session = Session(id: "ENG-42")
         try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: session))
         model.showList()
-        #expect(model.handle(.char("t", [])) == .handled)
+        #expect(model.handle(.command(AppModel.titleChord)) == .handled)
         #expect(model.isTitling)
         #expect(model.titleDraft == "")
         #expect(model.handle(.char("x", [])) == .ignored)  // typing goes to the field, not to trash
@@ -547,18 +547,74 @@ private func temporaryStore() -> FragmentStore {
         let model = makeFullModel()
         try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", title: "Old"))
         model.showList()
-        _ = model.handle(.char("t", []))
+        _ = model.handle(.command(AppModel.titleChord))
         #expect(model.titleDraft == "Old")
         model.titleDraft = "New"
         #expect(model.handle(.escape) == .handled)
         #expect(model.mode == .list)
         #expect(try model.store.all().first?.title == "Old")
-        _ = model.handle(.char("t", []))
+        _ = model.handle(.command(AppModel.titleChord))
         #expect(model.handle(.enter([])) == .handled)
-        _ = model.handle(.char("t", []))
+        _ = model.handle(.command(AppModel.titleChord))
         model.titleDraft = " "
         #expect(model.handle(.enter([])) == .handled)
         #expect(try model.store.all().first?.title == nil)
+    }
+
+    /// Typing narrows the list to fragments whose title or text has it. ↑↓, ↩ and ⌘1–9 work on what's shown; esc, or
+    /// the list opening again, goes back to every fragment with the highlighted one still selected.
+    @Test func typingFiltersTheListByTitleAndText() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "buy stamps"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "why does it flicker?", title: "List bug"))
+        try model.store.save(Fragment(id: "20260101-000003-0000", text: "the list of venues"))
+        model.showList()  // newest first: venues, List bug, stamps
+        #expect(model.handle(.char("l", [])) == .ignored)  // the field gets it
+        model.setListFilter("LIST")
+        #expect(model.shown.map(\.id) == ["20260101-000003-0000", "20260101-000002-0000"])
+        #expect(model.handle(.down) == .handled)
+        #expect(model.handle(.down) == .handled)
+        #expect(model.selection == 1)
+        #expect(model.handle(.escape) == .handled)  // clears the filter; a second esc closes
+        #expect(model.listFilter.isEmpty)
+        #expect(model.fragments[model.selection].title == "List bug")
+        #expect(model.handle(.escape) == .close)
+
+        model.showList()
+        model.setListFilter("nothing like it")
+        #expect(model.shown.isEmpty)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .list)
+        model.setListFilter("stamps")
+        #expect(model.handle(.command(AppModel.jumpChords[1])) == .handled)  // only one match
+        #expect(model.mode == .list)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .detail("20260101-000001-0000"))
+        #expect(model.handle(.escape) == .handled)
+        #expect(model.listFilter.isEmpty)
+        #expect(model.selection == 2)
+
+        model.setListFilter("venues")
+        model.showList()  // the panel closed mid-filter and opened again
+        #expect(model.listFilter.isEmpty)
+        #expect(model.selection == 0)
+    }
+
+    /// ⌘T titles the highlighted fragment of a filtered list; ⌘D with nothing matching trashes nothing. (A real trash
+    /// goes to the macOS Trash, so no test does one.)
+    @Test func titleAndTrashActOnTheFilteredList() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "buy stamps"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "the list of venues"))
+        model.showList()
+        model.setListFilter("stamps")
+        _ = model.handle(.command(AppModel.titleChord))
+        model.titleDraft = "Errand"
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.fragments.first { $0.id == "20260101-000001-0000" }?.title == "Errand")
+        model.setListFilter("nothing like it")
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+        #expect(model.fragments.count == 2)
     }
 
     /// Its folder deleted, a launch still opens: as a note, with the session kept in the file.
@@ -691,7 +747,7 @@ private func temporaryStore() -> FragmentStore {
     @Test func newFromListStartsCapture() {
         let model = makeModel()
         model.showList()
-        #expect(model.handle(.char("n", [])) == .startDictation)
+        #expect(model.handle(.command(AppModel.newChord)) == .startDictation)
         #expect(model.mode == .capture)
     }
 }
