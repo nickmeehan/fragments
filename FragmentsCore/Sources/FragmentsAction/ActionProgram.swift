@@ -35,7 +35,7 @@ public enum ActionVerb: String, Codable, Sendable {
 }
 
 /// What Fragments sends on stdin when a chord starts an action (`<program> start`), when ↩ in the list comes
-/// back to a launch (`<program> attach`), or when t in the list titles one (`<program> retitle`).
+/// back to a launch (`<program> attach`), or when ⌘T in the list titles one (`<program> retitle`).
 public struct ActionInput: Codable, Equatable, Sendable {
     public var fragment: Fragment
     /// Only the values you changed; every other setting keeps the default the action declares.

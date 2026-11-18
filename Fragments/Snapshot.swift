@@ -2,7 +2,7 @@ import AppKit
 import FragmentsCore
 
 /// `--snapshot DIR`: walk the panel through each mode (capture, ⌘K, list, ⌘, Actions and every action's own view,
-/// detail), image our own window into DIR and quit. Lets an agent look at the UI without a Screen Recording grant,
+/// detail, a filtered list), image our own window into DIR and quit. Lets an agent look at the UI without a Screen Recording grant,
 /// which macOS waives for a process imaging its own windows.
 @MainActor
 enum Snapshot {
@@ -24,7 +24,7 @@ enum Snapshot {
                 try await capture("kickoffs-filtered", into: directory, panel: panel)
                 panel.showList()
                 try await capture("list", into: directory, panel: panel)
-                _ = model.handle(.char("t", []))
+                _ = model.handle(.command(AppModel.titleChord))
                 try await capture("list-title", into: directory, panel: panel)
                 _ = model.handle(.escape)
                 _ = model.handle(.command(AppModel.actionsChord))
@@ -42,6 +42,10 @@ enum Snapshot {
                 panel.showList()
                 _ = model.handle(.enter([]))
                 try await capture("detail", into: directory, panel: panel)
+                // Last, so the filter doesn't move the selection the detail screen opens.
+                _ = model.handle(.escape)
+                model.setListFilter("list")
+                try await capture("list-filter", into: directory, panel: panel)
                 NSApp.terminate(nil)
             } catch {
                 log("snapshot failed: \(error)", in: directory)

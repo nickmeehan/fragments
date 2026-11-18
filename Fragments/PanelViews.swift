@@ -69,15 +69,22 @@ struct ListView: View {
         VStack(alignment: .leading, spacing: 8) {
             if model.fragments.isEmpty {
                 Spacer()
-                Text("No fragments yet. Press n to capture one.")
+                Text("No fragments yet. Press ⌘N to capture one.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                 Spacer()
             } else {
+                FilterField(
+                    prompt: "Filter by title or text…",
+                    text: Binding(get: { model.listFilter }, set: { model.setListFilter($0) }),
+                    focus: !model.isTitling)
+                if model.shown.isEmpty {
+                    Text("Nothing matches “\(model.listFilter)”.").foregroundStyle(.secondary).padding(8)
+                }
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(model.fragments.enumerated()), id: \.element.id) { index, fragment in
+                            ForEach(Array(model.shown.enumerated()), id: \.element.id) { index, fragment in
                                 Row(
                                     fragment: fragment, icon: model.icon(for: fragment),
                                     jump: AppModel.jumpChords.indices.contains(index)
@@ -90,19 +97,21 @@ struct ListView: View {
                         }
                     }
                     .onChange(of: model.selection) { _, index in
-                        if model.fragments.indices.contains(index) { proxy.scrollTo(model.fragments[index].id) }
+                        if model.shown.indices.contains(index) { proxy.scrollTo(model.shown[index].id) }
                     }
                 }
             }
-            Footer(
-                model.isTitling
-                    ? ["type a title", "↩ save", "esc cancel"]
-                    : [
-                        "j/k move", "↩ open", "⌘1–9 jump", "t title", "n new", "x trash", "⌘, actions", "esc close",
-                    ]
-            )
+            Footer(footer)
         }
         .padding(16)
+    }
+
+    private var footer: [String] {
+        if model.isTitling { return ["type a title", "↩ save", "esc cancel"] }
+        return [
+            "↑↓ move", "↩ open", "⌘1–9 jump", "⌘T title", "⌘N new", "⌘D trash", "⌘, actions",
+            model.listFilter.isEmpty ? "esc close" : "esc clear",
+        ]
     }
 }
 
@@ -112,7 +121,7 @@ private struct Row: View {
     /// The chord that opens this row, ⌘1…⌘9; nil past the ninth.
     let jump: String?
     let selected: Bool
-    /// Set while t edits this row's title.
+    /// Set while ⌘T edits this row's title.
     let title: Binding<String>?
     @FocusState private var focused: Bool
 
@@ -181,20 +190,11 @@ private struct Footer: View {
 /// ⌘K in capture: every kickoff that is on, filtered as you type. ↩ sends the draft with the selected one.
 struct KickoffsView: View {
     var model: AppModel
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(
-                    "Send with…", text: Binding(get: { model.kickoffFilter }, set: { model.setKickoffFilter($0) })
-                )
-                .textFieldStyle(.plain)
-                .focused($focused)
-            }
-            .font(.system(size: 17))
-            .padding(.horizontal, 8)
+            FilterField(
+                prompt: "Send with…", text: Binding(get: { model.kickoffFilter }, set: { model.setKickoffFilter($0) }))
             if model.kickoffs.isEmpty {
                 Text("Nothing on matches “\(model.kickoffFilter)”.").foregroundStyle(.secondary).padding(8)
             }
@@ -212,7 +212,29 @@ struct KickoffsView: View {
             Footer(["type to filter", "↑↓ move", "↩ send", "esc back to the draft"])
         }
         .padding(16)
-        .onAppear { DispatchQueue.main.async { focused = true } }
+    }
+}
+
+/// The field at the top of ⌘K and of the list. It takes focus as it appears, and again when `focus` turns back on
+/// (after the list's title field), so typing lands in it.
+private struct FilterField: View {
+    let prompt: String
+    let text: Binding<String>
+    var focus = true
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(prompt, text: text)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .accessibilityIdentifier("filter")
+        }
+        .font(.system(size: 17))
+        .padding(.horizontal, 8)
+        .onAppear { if focus { DispatchQueue.main.async { focused = true } } }
+        .onChange(of: focus) { _, on in if on { DispatchQueue.main.async { focused = true } } }
     }
 }
 
