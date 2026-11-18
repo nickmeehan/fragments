@@ -57,7 +57,7 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertFalse(editor.exists, "panel should close after keep")
     }
 
-    func testListShowsFragmentsWithHints() throws {
+    func testListShowsFragmentsWithJumps() throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for (index, text) in ["first thought", "second thought"].enumerated() {
             try "---\nid: 20260101-00000\(index)-0000\naction: keep\n---\n\n\(text)\n"
@@ -67,7 +67,9 @@ final class CaptureFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["second thought"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["first thought"].exists)
         snapshot(app, "list")
-        app.typeKey("s", modifierFlags: [])  // hint "s" = second row = the older fragment
+        app.typeKey("s", modifierFlags: [])  // a letter no longer opens a row
+        XCTAssertFalse(app.textViews["draft"].exists)
+        app.typeKey("2", modifierFlags: .command)  // ⌘2 = second row = the older fragment
         let editor = app.textViews["draft"]
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertEqual(editor.value as? String, "first thought")

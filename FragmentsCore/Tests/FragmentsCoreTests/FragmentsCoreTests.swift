@@ -119,20 +119,6 @@ private func temporaryStore() -> FragmentStore {
     }
 }
 
-@Suite struct HintLabelTests {
-    @Test func singleLettersWhenTheyFit() {
-        #expect(HintLabels.labels(count: 3) == ["a", "s", "d"])
-        #expect(HintLabels.labels(count: 0) == [])
-    }
-
-    @Test func twoLettersUniqueAndPrefixFree() {
-        let labels = HintLabels.labels(count: 30)
-        #expect(Set(labels).count == 30)
-        #expect(labels.allSatisfy { $0.count == 2 })
-        #expect(labels.first == "aa")
-    }
-}
-
 @Suite struct KeyComboTests {
     @Test func parsesModifiersAndKey() {
         #expect(KeyCombo("option+space") == KeyCombo(modifiers: .option, key: "space"))
@@ -295,14 +281,13 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.handle(.enter([])) == .ignored)
     }
 
-    @Test func listNavigationAndHints() throws {
+    @Test func listNavigationAndJumps() throws {
         let model = makeModel()
         for index in 1...3 {
             try model.store.save(Fragment(id: "20260101-00000\(index)-0000", text: "note \(index)"))
         }
         model.showList()
         #expect(model.mode == .list)
-        #expect(model.hints == ["a", "s", "d"])
         #expect(model.selection == 0)
         #expect(model.handle(.char("j", [])) == .handled)
         #expect(model.handle(.down) == .handled)
@@ -310,26 +295,38 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.selection == 2)
         #expect(model.handle(.char("k", [])) == .handled)
         #expect(model.selection == 1)
-        #expect(model.handle(.char("d", [])) == .handled)
+        #expect(model.handle(.command(AppModel.jumpChords[2])) == .handled)
         #expect(model.mode == .detail("20260101-000001-0000"))
         #expect(model.draft == "note 1")
     }
 
-    @Test func twoLetterHintsNeedBothKeys() throws {
+    @Test func onlyCommandNumbersJump() throws {
         let model = makeModel()
         for index in 10...19 {
             try model.store.save(Fragment(id: "20260101-0000\(index)-0000", text: "note \(index)"))
         }
         model.showList()
-        #expect(model.hints.count == 10)
-        #expect(model.handle(.char("a", [])) == .handled)
-        #expect(model.pendingHint == "a")
+        #expect(AppModel.jumpChords.map(\.symbols) == ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"])
+        // A stray letter or digit, ⌘⇧2 and ⌘0 open nothing.
+        for key: Key in [
+            .char("a", []), .char("2", []), .command(KeyCombo(modifiers: [.command, .shift], key: "2")),
+            .command(KeyCombo(modifiers: .command, key: "0")),
+        ] {
+            #expect(model.handle(key) == .handled)
+            #expect(model.mode == .list)
+        }
+        #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "9"))) == .handled)
+        #expect(model.mode == .detail(model.fragments[8].id))
+        #expect(model.selection == 8)
+    }
+
+    @Test func aJumpPastTheLastRowDoesNothing() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "only"))
+        model.showList()
+        #expect(model.handle(.command(AppModel.jumpChords[1])) == .handled)
         #expect(model.mode == .list)
-        #expect(model.handle(.escape) == .handled)
-        #expect(model.pendingHint.isEmpty)
-        #expect(model.handle(.char("a", [])) == .handled)
-        #expect(model.handle(.char("s", [])) == .handled)
-        #expect(model.mode == .detail(model.fragments[1].id))
+        #expect(model.selection == 0)
     }
 
     @Test func escapeInDetailSavesEditAndReturnsToList() throws {
@@ -387,7 +384,7 @@ private func temporaryStore() -> FragmentStore {
         try old.write(
             to: model.store.directory.appending(path: "20260101-000001-0000.md"), atomically: true, encoding: .utf8)
         model.showList()
-        guard case .start(let run) = model.handle(.char("a", [])) else {
+        guard case .start(let run) = model.handle(.command(AppModel.jumpChords[0])) else {
             Issue.record("expected attach")
             return
         }

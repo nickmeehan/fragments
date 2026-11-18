@@ -8,8 +8,8 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 
 - `FragmentsCore/` — Swift package, zero dependencies, pure logic: `FragmentStore` (the ~/.fragments folder),
   `AppModel` (the panel state machine), `ActionCatalog` (which actions capture offers), `ActionBuild` (how they
-  compile), `LoginShell` (how the app runs a program with the user's PATH), `HintLabels`, `KeyCombo`. Everything here
-  runs under `swift test` in seconds. Put logic here first.
+  compile), `LoginShell` (how the app runs a program with the user's PATH), `KeyCombo`. Everything here runs under
+  `swift test` in seconds. Put logic here first.
 - `FragmentsCore/Sources/FragmentsAction/` — what every action imports: `Fragment`, `Session`, the
   `OpenAction`/`RunAction`/`LaunchAction` protocols, `@Setting`, the JSON both sides speak. Foundation only: the app
   ships it as source and compiles it with the user's `swiftc`, so it must build on its own. Changing it changes a
