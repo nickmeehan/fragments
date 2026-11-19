@@ -29,6 +29,14 @@ extension View {
     }
 }
 
+/// A fragment's own words, wherever the panel shows them. Change the face here and every screen follows.
+extension Font {
+    /// What you write: capture and detail.
+    static let fragment = Font.system(size: 17, weight: .light, design: .rounded)
+    /// A fragment's heading in the list, at the list's size.
+    static let fragmentHeading = Font.system(.body, design: .rounded)
+}
+
 struct CaptureView: View {
     @Bindable var model: AppModel
     @FocusState private var focused: Bool
@@ -141,12 +149,13 @@ private struct Row: View {
             if let title {
                 // The first line is the placeholder: what the row says without a title.
                 TextField(fragment.firstLine, text: title)
+                    .font(.fragmentHeading)
                     .textFieldStyle(.plain)
                     .focused($focused)
                     .onAppear { DispatchQueue.main.async { focused = true } }
                     .accessibilityIdentifier("title")
             } else {
-                Text(fragment.heading).lineLimit(1)
+                Text(fragment.heading).font(.fragmentHeading).lineLimit(1)
             }
             Spacer()
             Text(fragment.createdAt, format: .relative(presentation: .named))
@@ -164,7 +173,8 @@ private struct Editor: View {
 
     var body: some View {
         TextEditor(text: $text)
-            .font(.system(size: 17))
+            .font(.fragment)
+            .lineSpacing(2)
             .scrollContentBackground(.hidden)
             .focused(focused)
             .accessibilityIdentifier("draft")
