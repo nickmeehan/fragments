@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// The panel's whole state machine: capture → keep, launch or ⌘K; list → filter, open, attach, title, trash or ⌘,;
-/// detail → edit; Actions → on/off, rebind, settings. Pure state plus `Command`s for the app shell to perform, so every
+/// detail → edit; Actions → on/off, rebind, settings; update → install. Pure state plus `Command`s for the app shell to perform, so every
 /// path runs under `swift test`.
 @MainActor @Observable
 public final class AppModel {
@@ -18,6 +18,8 @@ public final class AppModel {
         case actionSettings(String)
         /// ↩ on an action that didn't compile: why.
         case actionProblem(String)
+        /// The menu's Update item: what changed since your version; ↩ installs it.
+        case update
     }
 
     /// What the shell does after a keystroke.
@@ -31,10 +33,14 @@ public final class AppModel {
         case start(ActionRun)
         /// Tell a launch action its fragment's new title, staying in the list.
         case retitle(ActionRun)
+        /// Tell a launch action its fragment is in the Trash, so it stops the session, staying in the list.
+        case end(ActionRun)
         /// Store one edit to an action's choices in the `actions` preference.
         case choose(String, ActionChoice.Change)
         /// Show the folder your actions live in.
         case revealActions
+        /// Download the update and put it in place of this app, then relaunch. `installFailed` says when it can't.
+        case install(Update)
     }
 
     /// One row of ⌘K.
@@ -80,6 +86,12 @@ public final class AppModel {
     public var titleDraft = ""
     /// What's typed in the list's filter field; it narrows `shown`.
     public private(set) var listFilter = ""
+    /// The update the update view shows.
+    public private(set) var update: Update?
+    /// ↩ was pressed in the update view and the install hasn't failed: the app relaunches when it's done.
+    public private(set) var isInstalling = false
+    /// Why the last install stopped; ↩ tries again.
+    public private(set) var updateProblem: String?
 
     public init(store: FragmentStore) {
         self.store = store
@@ -143,6 +155,18 @@ public final class AppModel {
         fragments = (try? store.all()) ?? []
     }
 
+    /// Opens the update view on `update`. A problem from an install that failed while the panel was shut stays shown.
+    public func showUpdate(_ update: Update) {
+        self.update = update
+        mode = .update
+    }
+
+    /// The install `.install` started stopped; the update view says why.
+    public func installFailed(_ problem: String) {
+        isInstalling = false
+        updateProblem = problem
+    }
+
     /// The ⌘K filter field writes here; a new filter starts again at the top.
     public func setKickoffFilter(_ text: String) {
         kickoffFilter = text
@@ -202,6 +226,7 @@ public final class AppModel {
         case .actions: return isRecording ? handleRecording(key) : handleActions(key)
         case .actionSettings(let id): return isEditingSetting ? handleEditing(key, id: id) : handleSettings(key, id: id)
         case .actionProblem: return handleProblem(key)
+        case .update: return handleUpdate(key)
         }
     }
 
@@ -303,7 +328,7 @@ public final class AppModel {
             titleDraft = shown[selection].title ?? ""
             isTitling = true
         case .command(AppModel.trashChord):
-            trashSelected()
+            return trashSelected()
         case .command(let chord):
             // Any other ⌘ chord belongs to the filter field: ⌘A, ⌘V…
             guard let index = AppModel.jumpChords.firstIndex(of: chord) else { return .ignored }
@@ -385,11 +410,16 @@ public final class AppModel {
             name: action.name, program: action.program, verb: verb, input: input, returnsSession: verb == .attach)
     }
 
-    private func trashSelected() {
-        guard shown.indices.contains(selection) else { return }
-        try? store.trash(shown[selection])
+    /// Moves the selected fragment to the Trash. A launched one's action hears about it, so Rex can stop the session;
+    /// one that stayed put (the file couldn't be moved) keeps its session.
+    private func trashSelected() -> Command {
+        guard shown.indices.contains(selection) else { return .handled }
+        let fragment = shown[selection]
+        let trashed = (try? store.trash(fragment)) != nil
         reload()
         selection = min(selection, max(shown.count - 1, 0))
+        guard trashed else { return .handled }
+        return launchRun(.end, fragment).map { .end($0) } ?? .handled
     }
 
     /// Empties the filter, keeping the fragment it had highlighted selected in the whole list.
@@ -534,6 +564,24 @@ public final class AppModel {
         case .escape: mode = .actions
         case .char("o", []): return .revealActions
         default: break
+        }
+        return .handled
+    }
+
+    // MARK: Update
+
+    /// ↩ installs once; another ↩ while it runs does nothing. Esc shuts the panel and leaves the install running.
+    private func handleUpdate(_ key: Key) -> Command {
+        switch key {
+        case .escape:
+            return .close
+        case .enter([]):
+            guard let update, !isInstalling else { break }
+            isInstalling = true
+            updateProblem = nil
+            return .install(update)
+        default:
+            break
         }
         return .handled
     }

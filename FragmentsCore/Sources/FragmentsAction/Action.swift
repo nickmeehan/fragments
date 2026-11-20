@@ -25,7 +25,8 @@ public protocol RunAction: Action {
 }
 
 /// Starts something to come back to. The chord calls `start`; ↩ on the fragment's row in the list calls `attach` with
-/// the session `start` returned, which Fragments keeps in the fragment's file.
+/// the session `start` returned, which Fragments keeps in the fragment's file; ⌘D, which trashes the fragment, calls
+/// `end`.
 public protocol LaunchAction: Action {
     func start(_ fragment: Fragment) throws -> Session
     /// Returns the session to keep: the same one, or the one it opened in its place.
@@ -35,11 +36,16 @@ public protocol LaunchAction: Action {
     /// The list opened: by fragment id, the title each one's session has now, nil for one with no name of its own.
     /// Leave out any you can't tell about; Fragments saves the titles that changed. Nothing unless you write it.
     func titles(of fragments: [Fragment]) throws -> [Fragment.ID: String?]
+    /// ⌘D put the fragment in the Trash: stop what `start` began, so nothing is left running for a thought that's
+    /// gone. The fragment can come back out of the Trash, so leave what `attach` needs to open it again. Does nothing
+    /// unless you write it.
+    func end(_ fragment: Fragment, in session: Session) throws
 }
 
 extension LaunchAction {
     public func retitle(_ fragment: Fragment, in session: Session) throws {}
     public func titles(of fragments: [Fragment]) throws -> [Fragment.ID: String?] { [:] }
+    public func end(_ fragment: Fragment, in session: Session) throws {}
 }
 
 /// A key combination written the way Settings writes hotkeys: `cmd+option+return`, `cmd+r`, `cmd+1`.

@@ -2,7 +2,7 @@ import AppKit
 import FragmentsCore
 
 /// `--snapshot DIR`: walk the panel through each mode (capture, ⌘K, list, ⌘, Actions and every action's own view,
-/// detail, a filtered list), image our own window into DIR and quit. Lets an agent look at the UI without a Screen Recording grant,
+/// detail, a filtered list, the update view), image our own window into DIR and quit. Lets an agent look at the UI without a Screen Recording grant,
 /// which macOS waives for a process imaging its own windows.
 @MainActor
 enum Snapshot {
@@ -46,6 +46,11 @@ enum Snapshot {
                 _ = model.handle(.escape)
                 model.setListFilter("list")
                 try await capture("list-filter", into: directory, panel: panel)
+                guard let update = Updater.shared.available else {
+                    throw Problem("no update to draw: point FRAGMENTS_RELEASES at a newer release, as bin/renders does")
+                }
+                panel.showUpdate(update)
+                try await capture("update", into: directory, panel: panel)
                 NSApp.terminate(nil)
             } catch {
                 log("snapshot failed: \(error)", in: directory)

@@ -3,7 +3,7 @@ import FragmentsAction
 
 /// Starts Claude Code on the thought in a Rex (Superlogical) session, and comes back to it: ↩ in the list shows the
 /// session, or resumes the conversation in a new one when the session is gone (reboot, closed). The session's name
-/// and the fragment's title follow each other.
+/// and the fragment's title follow each other, and trashing the fragment closes the session.
 @main
 struct Rex: LaunchAction {
     static let name = "Rex"
@@ -45,6 +45,15 @@ struct Rex: LaunchAction {
     func retitle(_ fragment: Fragment, in session: Session) throws {
         guard let id = try running(fragment, in: session) else { return }
         try name(id, after: fragment)
+    }
+
+    /// Closes the session ↩ would show, Claude with it. The conversation stays on disk, so a fragment taken back out of
+    /// the Trash resumes it in a new session (attach). Killed, not quit: a quit Claude asks whether to keep a worktree
+    /// with work in it, and nobody is there to answer. A worktree is left as it was.
+    func end(_ fragment: Fragment, in session: Session) throws {
+        guard let id = try running(fragment, in: session) else { return }
+        let killed = try Rex.run(Rex.kill(sessionID: id))
+        guard killed.status == 0 else { throw Problem("Rex couldn't close the session.\n" + killed.output) }
     }
 
     /// What each fragment's session is called in Rex now, with one `rex session ls`; `frag-<id>` reads as no title.
@@ -120,8 +129,8 @@ extension Session {
 }
 
 // MARK: The commands Rex runs, apart from the action so the tests can read them
-// Verified against Rex Beta 0.1.0 (1853) on 2026-11-09, the client listing against (1925) on 2026-11-10, and the
-// inline script against (1925) on 2026-11-11.
+// Verified against Rex Beta 0.1.0 (1853) on 2026-11-09, the client listing against (1925) on 2026-11-10, the
+// inline script against (1925) on 2026-11-11, and the kill against (2042) on 2026-11-19.
 
 extension Rex {
     struct Problem: Error, CustomStringConvertible {
@@ -162,6 +171,11 @@ extension Rex {
     /// Renames a session by Rex's id. `--`, so a label that starts with a dash isn't read as a flag.
     static func rename(sessionID: String, label: String) -> [String] {
         rex(["session", "rename", "--", sessionID, label])
+    }
+
+    /// Closes a session by Rex's id, ending what runs in it.
+    static func kill(sessionID: String) -> [String] {
+        rex(["session", "kill", "--", sessionID])
     }
 
     /// Shows the session in the Rex app; `rex focus` only moves focus inside a session. Names the app client when
