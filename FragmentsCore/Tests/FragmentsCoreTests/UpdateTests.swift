@@ -88,6 +88,15 @@ private let v040 = """
         #expect(Update.notes(body) == ["A breaking one", "Faster list"])
     }
 
+    @Test func theSummaryIsTheNewestChangeAndACount() throws {
+        let many = try #require(Update(releases: releases([("v0.6.0", v060), ("v0.4.0", v040)]), current: "0.1.0"))
+        #expect(many.summary == "Open a list row with ⌘1–⌘9 instead of a letter, and 2 more")
+        let one = try #require(Update(releases: releases([("v0.4.0", v040)]), current: "0.1.0"))
+        #expect(one.summary == "Keep the selection on trash")
+        let none = try #require(Update(releases: releases([("v1.0.0", "Hand-written notes")]), current: "0.1.0"))
+        #expect(none.summary == "See what's new.")
+    }
+
     @Test func theZipAndPageAreBuiltFromTheVersion() throws {
         let update = try #require(Update(releases: releases([("v0.6.0", v060)]), current: "0.1.0"))
         #expect(

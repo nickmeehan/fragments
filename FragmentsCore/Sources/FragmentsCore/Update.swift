@@ -19,6 +19,13 @@ public struct Update: Equatable, Sendable {
     /// The version ↩ installs.
     public var version: String { releases[0].version }
 
+    /// The notification's line: the newest change, and how many more there are.
+    public var summary: String {
+        let notes = releases.flatMap(\.notes)
+        guard let first = notes.first else { return "See what's new." }
+        return notes.count == 1 ? first : "\(first), and \(notes.count - 1) more"
+    }
+
     /// The zip ↩ downloads. Built from the version, never taken from GitHub's answer.
     public var zip: URL {
         URL(string: "https://github.com/nickmeehan/fragments/releases/download/v\(version)/Fragments.zip")!

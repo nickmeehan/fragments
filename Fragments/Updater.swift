@@ -1,9 +1,10 @@
 import AppKit
 import FragmentsCore
 import Observation
+import UserNotifications
 
-/// Finds a release newer than this app and puts it in place of this app. The menu bar shows `available`; the panel's
-/// update view installs it.
+/// Finds a release newer than this app, says so in a notification and puts it in place of this app. The menu offers
+/// `available`; the panel's update view installs it.
 @MainActor @Observable
 final class Updater {
     static let shared = Updater()
@@ -28,7 +29,7 @@ final class Updater {
     /// `FRAGMENTS_RELEASES` names a file of GitHub's releases JSON to read instead (renders). Without it only a release
     /// build asks GitHub, so a build of your own never offers to replace itself. Offline, or a refusal such as a rate
     /// limit, keeps what the last check found.
-    private func check() async {
+    func check() async {
         var answer: Data?
         if let path = ProcessInfo.processInfo.environment["FRAGMENTS_RELEASES"] {
             answer = FileManager.default.contents(atPath: path)
@@ -43,7 +44,28 @@ final class Updater {
                 }
             #endif
         }
-        if let answer { available = Update(releases: answer, current: current) }
+        guard let answer else { return }
+        available = Update(releases: answer, current: current)
+        if let available { await announce(available) }
+    }
+
+    /// A notification, once per version; clicking it opens the update view (`AppDelegate`). macOS asks you to allow
+    /// notifications the first time there's one to show. Turned down, the menu's item still offers the update.
+    private func announce(_ update: Update) async {
+        guard !CommandLine.arguments.contains("--snapshot"),
+            UserDefaults.standard.string(forKey: Prefs.announcedUpdate) != update.version
+        else { return }
+        let center = UNUserNotificationCenter.current()
+        guard (try? await center.requestAuthorization(options: [.alert])) == true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Fragments \(update.version) is out"
+        content.body = update.summary
+        // One identifier, so a newer version's notification replaces an older one's.
+        guard
+            (try? await center.add(UNNotificationRequest(identifier: "update", content: content, trigger: nil)))
+                != nil
+        else { return }
+        UserDefaults.standard.set(update.version, forKey: Prefs.announcedUpdate)
     }
 
     /// Downloads the update, checks it's Fragments at that version, swaps it in and opens it on the list. Where this

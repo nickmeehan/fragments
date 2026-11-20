@@ -1,8 +1,9 @@
 import AppKit
 import FragmentsCore
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private(set) lazy var panel = PanelController()
     private var hotKeys: [HotKey] = []
 
@@ -12,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Prefs.moveClaudeCodeSettingsToRex()
         registerHotKeys()
         ActionHost.shared.refresh()  // compile what changed now, so the first capture has its actions
+        UNUserNotificationCenter.current().delegate = self
         Updater.shared.start()
         NotificationCenter.default.addObserver(
             self, selector: #selector(prefsChanged), name: UserDefaults.didChangeNotification, object: nil)
@@ -22,6 +24,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let i = arguments.firstIndex(of: "--snapshot"), i + 1 < arguments.count {
             Snapshot.run(into: URL(filePath: arguments[i + 1]), panel: panel)
         }
+    }
+
+    /// Clicking the update notification opens the update view. Clicked after Fragments quit, it relaunches the app,
+    /// which checks again first.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
+    ) async {
+        await showUpdate()
+    }
+
+    /// Shown even while Fragments is the active app, as it is whenever the panel is open.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list]
+    }
+
+    private func showUpdate() async {
+        if Updater.shared.available == nil { await Updater.shared.check() }
+        if let update = Updater.shared.available { panel.showUpdate(update) }
     }
 
     /// `fragments://new?text=…` and `fragments://list`, for scripts and other launchers.

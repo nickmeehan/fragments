@@ -10,6 +10,8 @@ enum Prefs {
     static let dictation = "dictation"
     /// What you chose per action in ⌘, Actions, as JSON: `{"remind": {"on": true}}`.
     static let actions = "actions"
+    /// The newest version a notification has told you about, so each is announced once.
+    static let announcedUpdate = "announcedUpdate"
 
     enum Default {
         static let fragmentsDir = "~/.fragments"
