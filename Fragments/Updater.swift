@@ -58,8 +58,7 @@ final class Updater {
         let center = UNUserNotificationCenter.current()
         guard (try? await center.requestAuthorization(options: [.alert])) == true else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Fragments \(update.version) is out"
-        content.body = update.summary
+        content.title = "Fragments \(update.version) is out!"
         // One identifier, so a newer version's notification replaces an older one's.
         guard
             (try? await center.add(UNNotificationRequest(identifier: "update", content: content, trigger: nil)))
