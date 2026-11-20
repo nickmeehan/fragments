@@ -14,6 +14,7 @@ struct PanelRoot: View {
             case .actions: ActionsView(model: model)
             case .actionSettings(let id): ActionSettingsView(model: model, id: id)
             case .actionProblem(let id): ActionProblemView(model: model, id: id)
+            case .update: UpdateView(model: model)
             }
         }
         .panelChrome()
@@ -421,6 +422,49 @@ struct ActionProblemView: View {
             Footer(["o open folder", "esc back to actions"])
         }
         .padding(16)
+    }
+}
+
+/// The menu's Update item: every release since yours, and ↩ to install the newest.
+struct UpdateView: View {
+    var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let update = model.update {
+                HStack(spacing: 12) {
+                    Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Fragments \(update.version)").font(.headline)
+                        Text("You have \(update.current)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 8)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(update.releases, id: \.version) { release in
+                            Text(release.version).font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                            ForEach(Array(release.notes.enumerated()), id: \.offset) { _, note in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text("•").foregroundStyle(.secondary)
+                                    Text(note)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                }
+            }
+            Footer(footer)
+        }
+        .padding(16)
+    }
+
+    private var footer: [String] {
+        if model.isInstalling { return ["installing \(model.update?.version ?? "")…"] }
+        if let problem = model.updateProblem { return [problem] }
+        return ["↩ install and relaunch", "esc close"]
     }
 }
 

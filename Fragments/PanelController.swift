@@ -62,6 +62,11 @@ final class PanelController {
         syncTitles()
     }
 
+    func showUpdate(_ update: Update) {
+        model.showUpdate(update)
+        show()
+    }
+
     /// Asks each launch action what its sessions are called now; a name changed there becomes the title here.
     private func syncTitles() {
         for run in model.titleRuns {
@@ -118,6 +123,8 @@ final class PanelController {
             Prefs.updateChoice(for: id) { $0.apply(change) }  // ActionHost re-resolves on the defaults change
         case .revealActions:
             ActionHost.shared.revealYours()
+        case .install(let update):
+            Updater.shared.install(update, model: model)
         }
         return nil
     }
