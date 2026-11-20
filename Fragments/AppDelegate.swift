@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Prefs.moveClaudeCodeSettingsToRex()
         registerHotKeys()
         ActionHost.shared.refresh()  // compile what changed now, so the first capture has its actions
+        Updater.shared.start()
         NotificationCenter.default.addObserver(
             self, selector: #selector(prefsChanged), name: UserDefaults.didChangeNotification, object: nil)
         // Launch arguments open the panel without a hotkey: UI tests and `bin/run --capture`.
