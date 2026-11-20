@@ -165,13 +165,16 @@ private func launchTitles(_ fragments: [Fragment]) throws -> Data? {
     @Test func attachWithoutASessionSaysSo() {
         #expect(throws: ActionProgram.Failure.self) { try launch("attach", sample) }
         #expect(throws: ActionProgram.Failure.self) { try launch("retitle", sample) }
+        #expect(throws: ActionProgram.Failure.self) { try launch("end", sample) }
     }
 
-    /// Ticket doesn't write retitle: it still compiles, and a retitle does nothing.
-    @Test func retitleDoesNothingUnlessTheActionWritesIt() throws {
+    /// Ticket writes neither retitle nor end: it still compiles, and each does nothing.
+    @Test func retitleAndEndDoNothingUnlessTheActionWritesThem() throws {
         var started = sample
         started.session = Session(id: "T-7")
         #expect(try launch("retitle", started) == nil)
+        #expect(try launch("end", started) == nil)
+        #expect(throws: ActionProgram.Failure.self) { try respond("end", ActionInput(fragment: started)) }
     }
 
     /// Open and run actions hand the thought off; there is nothing to come back to.
@@ -322,8 +325,8 @@ private func bytes(_ parts: String...) -> Data {
     private let folder = FileManager.default.temporaryDirectory.appending(path: "rex-test-\(UUID())")
     private var log: String { (try? String(contentsOf: folder.appending(path: "log"), encoding: .utf8)) ?? "" }
 
-    /// `alive` makes `session inspect` find the session; `select-fails` makes Rex refuse to show it; `ls-fails` makes
-    /// `session ls` fail. `session ls` prints the file `sessions`.
+    /// `alive` makes `session inspect` find the session; `select-fails` makes Rex refuse everything else (show, rename,
+    /// kill); `ls-fails` makes `session ls` fail. `session ls` prints the file `sessions`.
     private func rex(settings: [String: String] = [:], _ flags: String...) throws -> Rex {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for flag in flags { FileManager.default.createFile(atPath: folder.appending(path: flag).path, contents: nil) }
@@ -464,6 +467,27 @@ private func bytes(_ parts: String...) -> Data {
         try rex().retitle(titled, in: Session(id: "session:gone", resume: "sid"))
         #expect(!log.contains("rename"))
         #expect(!log.contains("new "))
+    }
+
+    /// The session ↩ would show is the one that closes: found by Rex's id, killed by it.
+    @Test func endClosesTheRunningSession() throws {
+        try rex("alive").end(sample, in: Session(id: "session:started", resume: "sid"))
+        #expect(
+            log.split(separator: "\n") == [
+                "session inspect --json -- session:started", "session kill -- session:alive",
+            ])
+    }
+
+    /// Nothing running (closed, a reboot): nothing to close, and nothing is opened to close it.
+    @Test func endLeavesASessionThatIsGone() throws {
+        try rex().end(sample, in: Session(id: "session:gone", resume: "sid"))
+        #expect(!log.contains("kill"))
+        #expect(!log.contains("new "))
+    }
+
+    @Test func endSaysWhyRexWouldNotClose() throws {
+        let rex = try rex("alive", "select-fails")
+        #expect(throws: Rex.Problem.self) { try rex.end(sample, in: Session(id: "session:started", resume: "sid")) }
     }
 
     /// One `rex session ls` answers for every fragment. A name of its own is the title, `frag-<id>` is none, and a
