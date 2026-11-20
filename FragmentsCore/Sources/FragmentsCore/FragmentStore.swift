@@ -3,6 +3,10 @@ import Foundation
 /// The fragments folder: one `<id>.md` per fragment.
 public struct FragmentStore: Sendable {
     public let directory: URL
+    /// What `trash` does with a file: moves it to the macOS Trash. Tests delete it instead, so they leave nothing there.
+    public var trashItem: @Sendable (URL) throws -> Void = {
+        try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+    }
 
     public init(directory: URL) {
         self.directory = directory
@@ -30,6 +34,6 @@ public struct FragmentStore: Sendable {
 
     /// Moves the file to the Trash, so a stray `x` is recoverable.
     public func trash(_ fragment: Fragment) throws {
-        try FileManager.default.trashItem(at: url(for: fragment), resultingItemURL: nil)
+        try trashItem(url(for: fragment))
     }
 }

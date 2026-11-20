@@ -31,6 +31,8 @@ public final class AppModel {
         case start(ActionRun)
         /// Tell a launch action its fragment's new title, staying in the list.
         case retitle(ActionRun)
+        /// Tell a launch action its fragment is in the Trash, so it stops the session, staying in the list.
+        case end(ActionRun)
         /// Store one edit to an action's choices in the `actions` preference.
         case choose(String, ActionChoice.Change)
         /// Show the folder your actions live in.
@@ -303,7 +305,7 @@ public final class AppModel {
             titleDraft = shown[selection].title ?? ""
             isTitling = true
         case .command(AppModel.trashChord):
-            trashSelected()
+            return trashSelected()
         case .command(let chord):
             // Any other ⌘ chord belongs to the filter field: ⌘A, ⌘V…
             guard let index = AppModel.jumpChords.firstIndex(of: chord) else { return .ignored }
@@ -385,11 +387,16 @@ public final class AppModel {
             name: action.name, program: action.program, verb: verb, input: input, returnsSession: verb == .attach)
     }
 
-    private func trashSelected() {
-        guard shown.indices.contains(selection) else { return }
-        try? store.trash(shown[selection])
+    /// Moves the selected fragment to the Trash. A launched one's action hears about it, so Rex can stop the session;
+    /// one that stayed put (the file couldn't be moved) keeps its session.
+    private func trashSelected() -> Command {
+        guard shown.indices.contains(selection) else { return .handled }
+        let fragment = shown[selection]
+        let trashed = (try? store.trash(fragment)) != nil
         reload()
         selection = min(selection, max(shown.count - 1, 0))
+        guard trashed else { return .handled }
+        return launchRun(.end, fragment).map { .end($0) } ?? .handled
     }
 
     /// Empties the filter, keeping the fragment it had highlighted selected in the whole list.

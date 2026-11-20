@@ -112,7 +112,7 @@ final class PanelController {
             hide()
             let id = run.input.fragment.id
             ActionHost.shared.start(run) { [model] session in model.started(id, session: session) }
-        case .retitle(let run):
+        case .retitle(let run), .end(let run):
             ActionHost.shared.start(run) { _ in }
         case .choose(let id, let change):
             Prefs.updateChoice(for: id) { $0.apply(change) }  // ActionHost re-resolves on the defaults change

@@ -39,7 +39,7 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
   its title field and a filtered list, ⌘, Actions and each action's view, detail) into `tmp/renders/head/`; with `--against`, REF's
   into `base/` and the screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's
   `--snapshot DIR` mode.
-- `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩ and ↩ with a harmless prompt (Nick's Mac only)
+- `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩, ↩ and ⌘D with a harmless prompt (Nick's Mac only)
 
 ## Verifying a change
 

@@ -5,8 +5,12 @@ import Testing
 @testable import FragmentsAction
 @testable import FragmentsCore
 
+/// A store in a temp folder whose trash deletes, so no test leaves anything in the macOS Trash.
 private func temporaryStore() -> FragmentStore {
-    FragmentStore(directory: FileManager.default.temporaryDirectory.appending(path: "fragments-test-\(UUID())"))
+    var store = FragmentStore(
+        directory: FileManager.default.temporaryDirectory.appending(path: "fragments-test-\(UUID())"))
+    store.trashItem = { try FileManager.default.removeItem(at: $0) }
+    return store
 }
 
 @Suite struct FragmentTests {
@@ -600,8 +604,42 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.selection == 0)
     }
 
-    /// ⌘T titles the highlighted fragment of a filtered list; ⌘D with nothing matching trashes nothing. (A real trash
-    /// goes to the macOS Trash, so no test does one.)
+    /// ⌘D trashes the selected fragment. A launched one's action hears about it so it can stop the session; a note, or a
+    /// launch whose action is gone, just goes.
+    @Test func commandDTrashesAndTellsTheLaunchActionToEnd() throws {
+        let model = makeFullModel()
+        let session = Session(id: "ENG-42")
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "note"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "orphan", action: "gone", session: session))
+        try model.store.save(Fragment(id: "20260101-000003-0000", text: "bug", action: "ticket", session: session))
+        model.showList()  // newest first: bug, orphan, note
+        guard case .end(let run) = model.handle(.command(AppModel.trashChord)) else {
+            Issue.record("expected end")
+            return
+        }
+        #expect(run.verb == .end)
+        #expect(run.name == "Ticket")
+        #expect(run.program == URL(filePath: "/cache/yours/ticket/action"))
+        #expect(run.input.fragment.session == session)
+        #expect(!run.returnsSession)
+        #expect(model.mode == .list)
+        #expect(model.fragments.map(\.text) == ["orphan", "note"])
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+        #expect(try model.store.all().isEmpty)
+    }
+
+    /// A file that couldn't be moved to the Trash stays in the list, and its session keeps running.
+    @Test func aFragmentThatWontTrashKeepsItsSession() throws {
+        let model = makeFullModel()
+        try model.store.save(
+            Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: Session(id: "ENG-42")))
+        model.showList()
+        try FileManager.default.removeItem(at: model.store.directory)  // gone from under the list
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+    }
+
+    /// ⌘T titles the highlighted fragment of a filtered list; ⌘D with nothing matching trashes nothing.
     @Test func titleAndTrashActOnTheFilteredList() throws {
         let model = makeModel()
         try model.store.save(Fragment(id: "20260101-000001-0000", text: "buy stamps"))

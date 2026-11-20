@@ -59,14 +59,19 @@ final class ActionHost {
         onChange?(actions)
     }
 
-    /// Runs the action's program on a saved fragment. The panel is already gone; the fragment is already saved, so
-    /// a failure only costs the hand-off, and the alert says why. A launch's start hands its session to `started`.
+    /// Runs the action's program on a saved fragment, or on one `end` says is in the Trash. The fragment is already
+    /// saved or trashed, so a failure only costs the hand-off, and the alert says why. A launch's start hands its
+    /// session to `started`.
     func start(_ run: ActionRun, started: @escaping @MainActor @Sendable (Session) -> Void) {
         Task.detached(priority: .userInitiated) {
             let input = (try? ActionWire.encoder.encode(run.input)) ?? Data()
             let result = Shell.run([run.program.path, run.verb.rawValue], input: input, timeout: 10)
             guard result.status == 0 else {
-                await ActionHost.fail("\(run.name) didn't finish. The fragment is kept.", result.output)
+                let message =
+                    run.verb == .end
+                    ? "\(run.name) couldn't stop what it started. The fragment is in the Trash."
+                    : "\(run.name) didn't finish. The fragment is kept."
+                await ActionHost.fail(message, result.output)
                 return
             }
             guard run.returnsSession else { return }
