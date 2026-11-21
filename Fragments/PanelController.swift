@@ -115,10 +115,12 @@ final class PanelController {
         guard event.window === panel else { return event }
         let key = Key(event)
         if let key, holding != key, model.submits(key), Dictation.isListening {
-            holding = key
             Dictation.stop()
-            submitWhenDictationLands(key, since: model.draft, deadline: .now + 3)
-            return nil
+            if !model.typed {
+                holding = key
+                submitWhenDictationLands(key, since: model.draft, deadline: .now + 3)
+                return nil
+            }
         }
         let command = key.map { model.handle($0) } ?? .ignored
         // A pass-through has one taker, the editor (typing; ⌘A, ⌘V… via the menu). Anywhere else, the list or the

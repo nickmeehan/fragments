@@ -297,6 +297,17 @@ private func temporaryStore() -> FragmentStore {
         #expect(!model.submits(.enter(.command)))
     }
 
+    @Test func typedCountsKeysYouTypeIntoTheCapture() {
+        let model = makeModel()
+        model.beginCapture()
+        #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "v"))) == .ignored)  // Wispr Flow pastes
+        #expect(!model.typed)
+        #expect(model.handle(.char("h", [])) == .ignored)
+        #expect(model.typed)
+        model.beginCapture()
+        #expect(!model.typed)
+    }
+
     @Test func commandChordNoActionOwnsLeavesTheDraftAlone() throws {
         let model = makeModel()
         model.draft = "not yet"
