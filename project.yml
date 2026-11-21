@@ -41,7 +41,7 @@ targets:
       path: Fragments/Info.plist
       properties:
         LSUIElement: true
-        NSHumanReadableCopyright: ""
+        NSHumanReadableCopyright: "Copyright © 2026 Meehan Technologies LLC. MIT License."
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
