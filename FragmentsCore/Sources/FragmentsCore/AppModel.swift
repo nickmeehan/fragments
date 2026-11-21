@@ -141,7 +141,12 @@ public final class AppModel {
     public func beginCapture(text: String = "") {
         mode = .capture
         draft = text
+        typed = false
     }
+
+    /// Whether you typed into this capture. Then Wispr Flow, which starts with it, isn't what fills the draft, and
+    /// nothing says when Wispr is done with nothing to paste: the shell submits without waiting for it.
+    public private(set) var typed = false
 
     public func showList() {
         clearFilter()
@@ -262,6 +267,7 @@ public final class AppModel {
             // Any other ⌘ chord no action owns belongs to the editor: ⌘A, ⌘V…
             return start(chord) ?? .ignored
         default:
+            if case .char = key { typed = true }  // Wispr Flow's paste is a ⌘V, so a .char is you
             return .ignored
         }
     }
@@ -287,10 +293,30 @@ public final class AppModel {
         return .handled
     }
 
+    /// Whether `key` in capture saves the draft and closes: ⌘↩, or the chord of an action that is on. Unless you
+    /// `typed`, the shell holds such a key until Wispr Flow has typed what it heard.
+    public func submits(_ key: Key) -> Bool {
+        guard mode == .capture else { return false }
+        switch key {
+        case .enter(.command):
+            return true
+        case .enter(let modifiers) where modifiers.contains(.command):
+            return owner(of: KeyCombo(modifiers: modifiers, key: "return")) != nil
+        case .command(let chord):
+            return chord != AppModel.kickoffsChord && owner(of: chord) != nil
+        default:
+            return false
+        }
+    }
+
+    private func owner(of chord: KeyCombo) -> ActionInfo? {
+        actions.first { $0.on && $0.chord == chord }
+    }
+
     /// Saves the draft for the action that is on for this chord and has the shell run it. Nil when no action
     /// owns the chord.
     private func start(_ chord: KeyCombo) -> Command? {
-        actions.first { $0.on && $0.chord == chord }.map { start($0) }
+        owner(of: chord).map { start($0) }
     }
 
     private func start(_ action: ActionInfo) -> Command {

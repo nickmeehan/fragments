@@ -88,6 +88,7 @@ final class PanelController {
     }
 
     private func hide() {
+        holding = nil
         panel.orderOut(nil)
         if NSApp.isActive { NSApp.hide(nil) }  // hands focus back to whatever was in front
     }
@@ -97,17 +98,46 @@ final class PanelController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { Dictation.start() }
     }
 
+    /// A submit waiting for Wispr Flow to type what it heard. Hiding drops it; pressing it again submits at once.
+    private var holding: Key?
+
+    /// Once stopped, Wispr pastes what it heard into the editor with one ⌘V through the clipboard, or nothing when it
+    /// heard nothing. Submit as soon as the draft changes, or at `deadline`.
+    private func submitWhenDictationLands(_ key: Key, since draft: String, deadline: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
+            guard holding == key else { return }
+            if model.draft == draft, Date.now < deadline {
+                return submitWhenDictationLands(key, since: draft, deadline: deadline)
+            }
+            holding = nil
+            perform(model.handle(key))
+        }
+    }
+
     private func handle(_ event: NSEvent) -> NSEvent? {
         // isKeyWindow can read false for a non-activating panel while the app is inactive; the event's window
         // says where AppKit will deliver it.
         guard event.window === panel else { return event }
-        let command = Key(event).map { model.handle($0) } ?? .ignored
+        let key = Key(event)
+        if let key, holding != key, model.submits(key), Dictation.isListening {
+            Dictation.stop()
+            if !model.typed {
+                holding = key
+                submitWhenDictationLands(key, since: model.draft, deadline: .now + 3)
+                return nil
+            }
+        }
+        let command = key.map { model.handle($0) } ?? .ignored
+        // A pass-through has one taker, the editor (typing; ⌘A, ⌘V… via the menu). Anywhere else, the list or the
+        // editor before focus lands, the key would run off the end of the responder chain and beep.
+        if command == .ignored { return panel.firstResponder is NSTextView ? event : nil }
+        perform(command)
+        return nil
+    }
+
+    private func perform(_ command: AppModel.Command) {
         switch command {
-        case .ignored:
-            // A pass-through has one taker, the editor (typing; ⌘A, ⌘V… via the menu). Anywhere else, the list or
-            // the editor before focus lands, the key would run off the end of the responder chain and beep.
-            return panel.firstResponder is NSTextView ? event : nil
-        case .handled:
+        case .ignored, .handled:
             break
         case .close:
             hide()
@@ -126,7 +156,6 @@ final class PanelController {
         case .install(let update):
             Updater.shared.install(update, model: model)
         }
-        return nil
     }
 }
 

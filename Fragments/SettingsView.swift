@@ -19,8 +19,11 @@ struct SettingsView: View {
             }
             Section("Dictation") {
                 Toggle("Start Wispr Flow hands-free when a fragment opens", isOn: $dictation)
-                Text("Uses Wispr Flow's wispr-flow://start-hands-free URL, so Wispr Flow must be running.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    "Uses Wispr Flow's wispr-flow://start-hands-free URL, so Wispr Flow must be running. Saving while it "
+                        + "listens stops it first and waits for what you said."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
