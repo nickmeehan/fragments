@@ -1,9 +1,9 @@
 import Foundation
 import Observation
 
-/// The panel's whole state machine: capture → keep, launch or ⌘K; list → open, attach, title, trash or ⌘,; detail → edit;
-/// Actions → on/off, rebind, settings. Pure state plus `Command`s for the app shell to perform, so every path runs
-/// under `swift test`.
+/// The panel's whole state machine: capture → keep, launch or ⌘K; list → filter, open, attach, title, trash or ⌘,;
+/// detail → edit; Actions → on/off, rebind, settings; update → install. Pure state plus `Command`s for the app shell to perform, so every
+/// path runs under `swift test`.
 @MainActor @Observable
 public final class AppModel {
     public enum Mode: Equatable, Sendable {
@@ -18,6 +18,8 @@ public final class AppModel {
         case actionSettings(String)
         /// ↩ on an action that didn't compile: why.
         case actionProblem(String)
+        /// The menu's Update item: what changed since your version; ↩ installs it.
+        case update
     }
 
     /// What the shell does after a keystroke.
@@ -31,10 +33,14 @@ public final class AppModel {
         case start(ActionRun)
         /// Tell a launch action its fragment's new title, staying in the list.
         case retitle(ActionRun)
+        /// Tell a launch action its fragment is in the Trash, so it stops the session, staying in the list.
+        case end(ActionRun)
         /// Store one edit to an action's choices in the `actions` preference.
         case choose(String, ActionChoice.Change)
         /// Show the folder your actions live in.
         case revealActions
+        /// Download the update and put it in place of this app, then relaunch. `installFailed` says when it can't.
+        case install(Update)
     }
 
     /// One row of ⌘K.
@@ -49,12 +55,17 @@ public final class AppModel {
     public static let keep = "keep"
     public static let kickoffsChord = KeyCombo(modifiers: .command, key: "k")
     public static let actionsChord = KeyCombo(modifiers: .command, key: ",")
+    /// ⌘1…⌘9 open the list's first nine rows, the way ⌘-number picks a tab.
+    public static let jumpChords = (1...9).map { KeyCombo(modifiers: .command, key: "\($0)") }
+    /// The list's commands are ⌘ chords, since its letters go to the filter.
+    public static let newChord = KeyCombo(modifiers: .command, key: "n")
+    public static let titleChord = KeyCombo(modifiers: .command, key: "t")
+    public static let trashChord = KeyCombo(modifiers: .command, key: "d")
 
     public private(set) var mode: Mode = .capture
     public var draft = ""
     public private(set) var fragments: [Fragment] = []
     public private(set) var selection = 0
-    public private(set) var pendingHint = ""
     /// Every action found, on or off; the shell refreshes it when capture opens.
     public var actions: [ActionInfo] = []
     public let store: FragmentStore
@@ -70,16 +81,20 @@ public final class AppModel {
     /// ↩ on a text or folder setting: typing goes into `settingDraft` until ↩ saves it or esc drops it.
     public private(set) var isEditingSetting = false
     public var settingDraft = ""
-    /// t in the list: typing goes into `titleDraft` until ↩ saves it on the selected fragment or esc drops it.
+    /// ⌘T in the list: typing goes into `titleDraft` until ↩ saves it on the selected fragment or esc drops it.
     public private(set) var isTitling = false
     public var titleDraft = ""
+    /// What's typed in the list's filter field; it narrows `shown`.
+    public private(set) var listFilter = ""
+    /// The update the update view shows.
+    public private(set) var update: Update?
+    /// ↩ was pressed in the update view and the install hasn't failed: the app relaunches when it's done.
+    public private(set) var isInstalling = false
+    /// Why the last install stopped; ↩ tries again.
+    public private(set) var updateProblem: String?
 
     public init(store: FragmentStore) {
         self.store = store
-    }
-
-    public var hints: [String] {
-        HintLabels.labels(count: fragments.count)
     }
 
     /// The capture footer: keep, each action that is on, ⌘K, esc.
@@ -103,6 +118,16 @@ public final class AppModel {
         return all.filter { $0.name.localizedCaseInsensitiveContains(kickoffFilter) }
     }
 
+    /// The list as drawn: every fragment, or only those whose title or text contains the filter. `selection` points
+    /// into this.
+    public var shown: [Fragment] {
+        guard !listFilter.isEmpty else { return fragments }
+        return fragments.filter {
+            $0.text.localizedCaseInsensitiveContains(listFilter)
+                || ($0.title?.localizedCaseInsensitiveContains(listFilter) ?? false)
+        }
+    }
+
     /// The icon on a fragment's row: a note, or the icon of the action ↩ comes back to (a launch's, if it's gone).
     public func icon(for fragment: Fragment) -> String {
         guard fragment.session != nil else { return "note.text" }
@@ -124,9 +149,9 @@ public final class AppModel {
     public private(set) var typed = false
 
     public func showList() {
+        clearFilter()
         reload()
         selection = min(selection, max(fragments.count - 1, 0))
-        pendingHint = ""
         isTitling = false
         mode = .list
     }
@@ -135,10 +160,28 @@ public final class AppModel {
         fragments = (try? store.all()) ?? []
     }
 
+    /// Opens the update view on `update`. A problem from an install that failed while the panel was shut stays shown.
+    public func showUpdate(_ update: Update) {
+        self.update = update
+        mode = .update
+    }
+
+    /// The install `.install` started stopped; the update view says why.
+    public func installFailed(_ problem: String) {
+        isInstalling = false
+        updateProblem = problem
+    }
+
     /// The ⌘K filter field writes here; a new filter starts again at the top.
     public func setKickoffFilter(_ text: String) {
         kickoffFilter = text
         kickoffSelection = 0
+    }
+
+    /// The list's filter field writes here; a new filter starts again at the top.
+    public func setListFilter(_ text: String) {
+        listFilter = text
+        selection = 0
     }
 
     /// A launch action answered its start, or an attach: keep the session on the fragment, so ↩ in the list comes back
@@ -188,6 +231,7 @@ public final class AppModel {
         case .actions: return isRecording ? handleRecording(key) : handleActions(key)
         case .actionSettings(let id): return isEditingSetting ? handleEditing(key, id: id) : handleSettings(key, id: id)
         case .actionProblem: return handleProblem(key)
+        case .update: return handleUpdate(key)
         }
     }
 
@@ -287,8 +331,8 @@ public final class AppModel {
     private func handleList(_ key: Key) -> Command {
         switch key {
         case .escape:
-            guard pendingHint.isEmpty else {
-                pendingHint = ""
+            guard listFilter.isEmpty else {
+                clearFilter()
                 return .handled
             }
             return .close
@@ -302,29 +346,21 @@ public final class AppModel {
             actionSelection = min(actionSelection, max(actions.count - 1, 0))
             isRecording = false
             mode = .actions
-        case .char(let character, let modifiers) where modifiers.isEmpty:
-            switch character {
-            case "j": move(1)
-            case "k": move(-1)
-            case "x": trashSelected()
-            case "t":
-                guard fragments.indices.contains(selection) else { break }
-                titleDraft = fragments[selection].title ?? ""
-                isTitling = true
-            case "n":
-                beginCapture()
-                return .startDictation
-            default:
-                guard HintLabels.alphabet.contains(character) else { return .handled }
-                pendingHint.append(character)
-                if let index = hints.firstIndex(of: pendingHint) {
-                    pendingHint = ""
-                    return open(index)
-                }
-                if !hints.contains(where: { $0.hasPrefix(pendingHint) }) { pendingHint = "" }
-            }
+        case .command(AppModel.newChord):
+            beginCapture()
+            return .startDictation
+        case .command(AppModel.titleChord):
+            guard shown.indices.contains(selection) else { break }
+            titleDraft = shown[selection].title ?? ""
+            isTitling = true
+        case .command(AppModel.trashChord):
+            return trashSelected()
+        case .command(let chord):
+            // Any other ⌘ chord belongs to the filter field: ⌘A, ⌘V…
+            guard let index = AppModel.jumpChords.firstIndex(of: chord) else { return .ignored }
+            return open(index)
         default:
-            break
+            return .ignored  // typing goes to the filter field
         }
         return .handled
     }
@@ -346,15 +382,14 @@ public final class AppModel {
     }
 
     private func move(_ delta: Int) {
-        selection = min(max(selection + delta, 0), max(fragments.count - 1, 0))
-        pendingHint = ""
+        selection = min(max(selection + delta, 0), max(shown.count - 1, 0))
     }
 
     /// A launched fragment goes back to what it started; anything else opens in the editor, including a launch
     /// whose action is gone.
     private func open(_ index: Int) -> Command {
-        guard fragments.indices.contains(index) else { return .handled }
-        let fragment = fragments[index]
+        guard shown.indices.contains(index) else { return .handled }
+        let fragment = shown[index]
         selection = index
         if let run = launchRun(.attach, fragment) { return .start(run) }
         draft = fragment.text
@@ -378,15 +413,16 @@ public final class AppModel {
     /// Saves the draft as the selected fragment's title; an empty one clears it. A launched fragment's action hears
     /// about it, so Rex can rename the session.
     private func retitleSelected() -> Command {
-        guard fragments.indices.contains(selection) else { return .handled }
-        var fragment = fragments[selection]
+        guard shown.indices.contains(selection) else { return .handled }
+        var fragment = shown[selection]
         // One line, because the title is a line of the front matter.
         let title = titleDraft.components(separatedBy: .newlines).joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
         fragment.title = title.isEmpty ? nil : title
-        guard fragment.title != fragments[selection].title else { return .handled }
+        guard fragment.title != shown[selection].title else { return .handled }
         try? store.save(fragment)
         reload()
+        selection = min(selection, max(shown.count - 1, 0))  // the new title may no longer match the filter
         return launchRun(.retitle, fragment).map { .retitle($0) } ?? .handled
     }
 
@@ -400,11 +436,23 @@ public final class AppModel {
             name: action.name, program: action.program, verb: verb, input: input, returnsSession: verb == .attach)
     }
 
-    private func trashSelected() {
-        guard fragments.indices.contains(selection) else { return }
-        try? store.trash(fragments[selection])
+    /// Moves the selected fragment to the Trash. A launched one's action hears about it, so Rex can stop the session;
+    /// one that stayed put (the file couldn't be moved) keeps its session.
+    private func trashSelected() -> Command {
+        guard shown.indices.contains(selection) else { return .handled }
+        let fragment = shown[selection]
+        let trashed = (try? store.trash(fragment)) != nil
         reload()
-        selection = min(selection, max(fragments.count - 1, 0))
+        selection = min(selection, max(shown.count - 1, 0))
+        guard trashed else { return .handled }
+        return launchRun(.end, fragment).map { .end($0) } ?? .handled
+    }
+
+    /// Empties the filter, keeping the fragment it had highlighted selected in the whole list.
+    private func clearFilter() {
+        let id = shown.indices.contains(selection) ? shown[selection].id : nil
+        listFilter = ""
+        selection = fragments.firstIndex { $0.id == id } ?? 0
     }
 
     // MARK: ⌘, Actions
@@ -542,6 +590,24 @@ public final class AppModel {
         case .escape: mode = .actions
         case .char("o", []): return .revealActions
         default: break
+        }
+        return .handled
+    }
+
+    // MARK: Update
+
+    /// ↩ installs once; another ↩ while it runs does nothing. Esc shuts the panel and leaves the install running.
+    private func handleUpdate(_ key: Key) -> Command {
+        switch key {
+        case .escape:
+            return .close
+        case .enter([]):
+            guard let update, !isInstalling else { break }
+            isInstalling = true
+            updateProblem = nil
+            return .install(update)
+        default:
+            break
         }
         return .handled
     }

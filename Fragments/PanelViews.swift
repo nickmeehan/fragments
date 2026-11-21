@@ -14,6 +14,7 @@ struct PanelRoot: View {
             case .actions: ActionsView(model: model)
             case .actionSettings(let id): ActionSettingsView(model: model, id: id)
             case .actionProblem(let id): ActionProblemView(model: model, id: id)
+            case .update: UpdateView(model: model)
             }
         }
         .panelChrome()
@@ -27,6 +28,14 @@ extension View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.quaternary))
     }
+}
+
+/// A fragment's own words, wherever the panel shows them. Change the face here and every screen follows.
+extension Font {
+    /// What you write: capture and detail.
+    static let fragment = Font.system(size: 17, weight: .light, design: .rounded)
+    /// A fragment's heading in the list, at the list's size.
+    static let fragmentHeading = Font.system(.body, design: .rounded)
 }
 
 struct CaptureView: View {
@@ -69,18 +78,27 @@ struct ListView: View {
         VStack(alignment: .leading, spacing: 8) {
             if model.fragments.isEmpty {
                 Spacer()
-                Text("No fragments yet. Press n to capture one.")
+                Text("No fragments yet. Press ⌘N to capture one.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                 Spacer()
             } else {
+                FilterField(
+                    prompt: "Filter by title or text…",
+                    text: Binding(get: { model.listFilter }, set: { model.setListFilter($0) }),
+                    focus: !model.isTitling)
+                if model.shown.isEmpty {
+                    Text("Nothing matches “\(model.listFilter)”.").foregroundStyle(.secondary).padding(8)
+                }
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(model.fragments.enumerated()), id: \.element.id) { index, fragment in
+                            ForEach(Array(model.shown.enumerated()), id: \.element.id) { index, fragment in
                                 Row(
-                                    fragment: fragment, icon: model.icon(for: fragment), hint: model.hints[index],
-                                    pending: model.pendingHint, selected: index == model.selection,
+                                    fragment: fragment, icon: model.icon(for: fragment),
+                                    jump: AppModel.jumpChords.indices.contains(index)
+                                        ? AppModel.jumpChords[index].symbols : nil,
+                                    selected: index == model.selection,
                                     title: model.isTitling && index == model.selection ? $model.titleDraft : nil
                                 )
                                 .id(fragment.id)
@@ -88,54 +106,57 @@ struct ListView: View {
                         }
                     }
                     .onChange(of: model.selection) { _, index in
-                        if model.fragments.indices.contains(index) { proxy.scrollTo(model.fragments[index].id) }
+                        if model.shown.indices.contains(index) { proxy.scrollTo(model.shown[index].id) }
                     }
                 }
             }
-            Footer(
-                model.isTitling
-                    ? ["type a title", "↩ save", "esc cancel"]
-                    : [
-                        "j/k move", "type a label to jump", "↩ open", "t title", "n new", "x trash", "⌘, actions",
-                        "esc close",
-                    ]
-            )
+            Footer(footer)
         }
         .padding(16)
+    }
+
+    private var footer: [String] {
+        if model.isTitling { return ["type a title", "↩ save", "esc cancel"] }
+        return [
+            "↑↓ move", "↩ open", "⌘1–9 jump", "⌘T title", "⌘N new", "⌘D trash", "⌘, actions",
+            model.listFilter.isEmpty ? "esc close" : "esc clear",
+        ]
     }
 }
 
 private struct Row: View {
     let fragment: Fragment
     let icon: String
-    let hint: String
-    let pending: String
+    /// The chord that opens this row, ⌘1…⌘9; nil past the ninth.
+    let jump: String?
     let selected: Bool
-    /// Set while t edits this row's title.
+    /// Set while ⌘T edits this row's title.
     let title: Binding<String>?
     @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(hint)
+            Text(jump ?? "⌘1")
                 .font(.system(.caption, design: .monospaced).bold())
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
-                .background(
-                    !pending.isEmpty && hint.hasPrefix(pending) ? Color.accentColor : Color.secondary.opacity(0.2),
-                    in: RoundedRectangle(cornerRadius: 4))
+                .background(Color.secondary.opacity(0.2), in: RoundedRectangle(cornerRadius: 4))
+                // Past ⌘9 the badge keeps its space unseen, so every row's icon and title still line up.
+                .opacity(jump == nil ? 0 : 1)
+                .accessibilityHidden(jump == nil)
             Image(systemName: icon)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)  // as in ⌘K, so every title starts at the same place whatever the icon
             if let title {
                 // The first line is the placeholder: what the row says without a title.
                 TextField(fragment.firstLine, text: title)
+                    .font(.fragmentHeading)
                     .textFieldStyle(.plain)
                     .focused($focused)
                     .onAppear { DispatchQueue.main.async { focused = true } }
                     .accessibilityIdentifier("title")
             } else {
-                Text(fragment.heading).lineLimit(1)
+                Text(fragment.heading).font(.fragmentHeading).lineLimit(1)
             }
             Spacer()
             Text(fragment.createdAt, format: .relative(presentation: .named))
@@ -153,7 +174,8 @@ private struct Editor: View {
 
     var body: some View {
         TextEditor(text: $text)
-            .font(.system(size: 17))
+            .font(.fragment)
+            .lineSpacing(2)
             .scrollContentBackground(.hidden)
             .focused(focused)
             .accessibilityIdentifier("draft")
@@ -179,20 +201,11 @@ private struct Footer: View {
 /// ⌘K in capture: every kickoff that is on, filtered as you type. ↩ sends the draft with the selected one.
 struct KickoffsView: View {
     var model: AppModel
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(
-                    "Send with…", text: Binding(get: { model.kickoffFilter }, set: { model.setKickoffFilter($0) })
-                )
-                .textFieldStyle(.plain)
-                .focused($focused)
-            }
-            .font(.system(size: 17))
-            .padding(.horizontal, 8)
+            FilterField(
+                prompt: "Send with…", text: Binding(get: { model.kickoffFilter }, set: { model.setKickoffFilter($0) }))
             if model.kickoffs.isEmpty {
                 Text("Nothing on matches “\(model.kickoffFilter)”.").foregroundStyle(.secondary).padding(8)
             }
@@ -210,7 +223,29 @@ struct KickoffsView: View {
             Footer(["type to filter", "↑↓ move", "↩ send", "esc back to the draft"])
         }
         .padding(16)
-        .onAppear { DispatchQueue.main.async { focused = true } }
+    }
+}
+
+/// The field at the top of ⌘K and of the list. It takes focus as it appears, and again when `focus` turns back on
+/// (after the list's title field), so typing lands in it.
+private struct FilterField: View {
+    let prompt: String
+    let text: Binding<String>
+    var focus = true
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(prompt, text: text)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .accessibilityIdentifier("filter")
+        }
+        .font(.system(size: 17))
+        .padding(.horizontal, 8)
+        .onAppear { if focus { DispatchQueue.main.async { focused = true } } }
+        .onChange(of: focus) { _, on in if on { DispatchQueue.main.async { focused = true } } }
     }
 }
 
@@ -387,6 +422,49 @@ struct ActionProblemView: View {
             Footer(["o open folder", "esc back to actions"])
         }
         .padding(16)
+    }
+}
+
+/// The menu's Update item: every release since yours, and ↩ to install the newest.
+struct UpdateView: View {
+    var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let update = model.update {
+                HStack(spacing: 12) {
+                    Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Fragments \(update.version)").font(.headline)
+                        Text("You have \(update.current)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 8)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(update.releases, id: \.version) { release in
+                            Text(release.version).font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                            ForEach(Array(release.notes.enumerated()), id: \.offset) { _, note in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text("•").foregroundStyle(.secondary)
+                                    Text(note)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                }
+            }
+            Footer(footer)
+        }
+        .padding(16)
+    }
+
+    private var footer: [String] {
+        if model.isInstalling { return ["installing \(model.update?.version ?? "")…"] }
+        if let problem = model.updateProblem { return [problem] }
+        return ["↩ install and relaunch", "esc close"]
     }
 }
 

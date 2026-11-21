@@ -105,7 +105,8 @@ extension ActionChoice {
 }
 
 /// What the shell runs: `<program> start` when a chord starts an action, `<program> attach` when ↩ in the list comes
-/// back to a launch, `<program> retitle` when t titles one. The input goes on stdin.
+/// back to a launch, `<program> retitle` when ⌘T titles one, `<program> end` when ⌘D trashes one. The input goes on
+/// stdin.
 public struct ActionRun: Equatable, Sendable {
     public var name: String
     public var program: URL

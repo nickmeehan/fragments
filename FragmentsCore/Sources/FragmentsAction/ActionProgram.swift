@@ -29,13 +29,14 @@ public struct Manifest: Codable, Equatable, Sendable {
 }
 
 /// What Fragments asks of an action's program, with an `ActionInput` on stdin (a `TitlesInput` for `titles`). Only a
-/// launch action attaches, retitles or answers for titles.
+/// launch action attaches, retitles, answers for titles or ends.
 public enum ActionVerb: String, Codable, Sendable {
-    case start, attach, retitle, titles
+    case start, attach, retitle, titles, end
 }
 
 /// What Fragments sends on stdin when a chord starts an action (`<program> start`), when ↩ in the list comes
-/// back to a launch (`<program> attach`), or when t in the list titles one (`<program> retitle`).
+/// back to a launch (`<program> attach`), when ⌘T in the list titles one (`<program> retitle`), or when ⌘D trashes
+/// one (`<program> end`).
 public struct ActionInput: Codable, Equatable, Sendable {
     public var fragment: Fragment
     /// Only the values you changed; every other setting keeps the default the action declares.
@@ -115,7 +116,7 @@ enum ActionProgram {
             throw Failure(
                 description:
                     "usage: \(CommandLine.arguments.first ?? "action") manifest | start < input.json | attach < input.json"
-                    + " | retitle < input.json | titles < input.json"
+                    + " | retitle < input.json | titles < input.json | end < input.json"
             )
         }
         guard verb == .start || type == .launch else {
@@ -142,7 +143,7 @@ enum ActionProgram {
     }
 
     /// A launch's verbs: `start` prints the session it began, `attach` the session to keep, `retitle` passes on a new
-    /// title.
+    /// title, `end` stops the session of a trashed fragment.
     static func launch<A: LaunchAction>(_ action: A, _ verb: ActionVerb, _ fragment: Fragment) throws -> Data? {
         if verb == .start { return try ActionWire.encoder.encode(LaunchResult(session: action.start(fragment))) }
         guard let session = fragment.session else {
@@ -151,6 +152,7 @@ enum ActionProgram {
         switch verb {
         case .attach: return try ActionWire.encoder.encode(LaunchResult(session: action.attach(fragment, to: session)))
         case .retitle: try action.retitle(fragment, in: session)
+        case .end: try action.end(fragment, in: session)
         case .start, .titles: break  // start is answered above, titles by `titles` with every fragment at once
         }
         return nil

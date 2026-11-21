@@ -5,8 +5,12 @@ import Testing
 @testable import FragmentsAction
 @testable import FragmentsCore
 
+/// A store in a temp folder whose trash deletes, so no test leaves anything in the macOS Trash.
 private func temporaryStore() -> FragmentStore {
-    FragmentStore(directory: FileManager.default.temporaryDirectory.appending(path: "fragments-test-\(UUID())"))
+    var store = FragmentStore(
+        directory: FileManager.default.temporaryDirectory.appending(path: "fragments-test-\(UUID())"))
+    store.trashItem = { try FileManager.default.removeItem(at: $0) }
+    return store
 }
 
 @Suite struct FragmentTests {
@@ -116,20 +120,6 @@ private func temporaryStore() -> FragmentStore {
         try store.save(Fragment(id: "20260101-000000-0001", text: "old"))
         try store.save(Fragment(id: "20260102-000000-0001", text: "new"))
         #expect(try store.all().map(\.text) == ["new", "old"])
-    }
-}
-
-@Suite struct HintLabelTests {
-    @Test func singleLettersWhenTheyFit() {
-        #expect(HintLabels.labels(count: 3) == ["a", "s", "d"])
-        #expect(HintLabels.labels(count: 0) == [])
-    }
-
-    @Test func twoLettersUniqueAndPrefixFree() {
-        let labels = HintLabels.labels(count: 30)
-        #expect(Set(labels).count == 30)
-        #expect(labels.allSatisfy { $0.count == 2 })
-        #expect(labels.first == "aa")
     }
 }
 
@@ -322,41 +312,52 @@ private func temporaryStore() -> FragmentStore {
         #expect(model.handle(.enter([])) == .ignored)
     }
 
-    @Test func listNavigationAndHints() throws {
+    @Test func listNavigationAndJumps() throws {
         let model = makeModel()
         for index in 1...3 {
             try model.store.save(Fragment(id: "20260101-00000\(index)-0000", text: "note \(index)"))
         }
         model.showList()
         #expect(model.mode == .list)
-        #expect(model.hints == ["a", "s", "d"])
         #expect(model.selection == 0)
-        #expect(model.handle(.char("j", [])) == .handled)
+        #expect(model.handle(.down) == .handled)
         #expect(model.handle(.down) == .handled)
         #expect(model.handle(.down) == .handled)
         #expect(model.selection == 2)
-        #expect(model.handle(.char("k", [])) == .handled)
+        #expect(model.handle(.up) == .handled)
         #expect(model.selection == 1)
-        #expect(model.handle(.char("d", [])) == .handled)
+        #expect(model.handle(.command(AppModel.jumpChords[2])) == .handled)
         #expect(model.mode == .detail("20260101-000001-0000"))
         #expect(model.draft == "note 1")
     }
 
-    @Test func twoLetterHintsNeedBothKeys() throws {
+    @Test func onlyCommandNumbersJump() throws {
         let model = makeModel()
         for index in 10...19 {
             try model.store.save(Fragment(id: "20260101-0000\(index)-0000", text: "note \(index)"))
         }
         model.showList()
-        #expect(model.hints.count == 10)
-        #expect(model.handle(.char("a", [])) == .handled)
-        #expect(model.pendingHint == "a")
+        #expect(AppModel.jumpChords.map(\.symbols) == ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"])
+        // A letter or digit, ⌘⇧2 and ⌘0 open nothing: they go to the filter field.
+        for key: Key in [
+            .char("a", []), .char("2", []), .command(KeyCombo(modifiers: [.command, .shift], key: "2")),
+            .command(KeyCombo(modifiers: .command, key: "0")),
+        ] {
+            #expect(model.handle(key) == .ignored)
+            #expect(model.mode == .list)
+        }
+        #expect(model.handle(.command(KeyCombo(modifiers: .command, key: "9"))) == .handled)
+        #expect(model.mode == .detail(model.fragments[8].id))
+        #expect(model.selection == 8)
+    }
+
+    @Test func aJumpPastTheLastRowDoesNothing() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "only"))
+        model.showList()
+        #expect(model.handle(.command(AppModel.jumpChords[1])) == .handled)
         #expect(model.mode == .list)
-        #expect(model.handle(.escape) == .handled)
-        #expect(model.pendingHint.isEmpty)
-        #expect(model.handle(.char("a", [])) == .handled)
-        #expect(model.handle(.char("s", [])) == .handled)
-        #expect(model.mode == .detail(model.fragments[1].id))
+        #expect(model.selection == 0)
     }
 
     @Test func escapeInDetailSavesEditAndReturnsToList() throws {
@@ -414,7 +415,7 @@ private func temporaryStore() -> FragmentStore {
         try old.write(
             to: model.store.directory.appending(path: "20260101-000001-0000.md"), atomically: true, encoding: .utf8)
         model.showList()
-        guard case .start(let run) = model.handle(.char("a", [])) else {
+        guard case .start(let run) = model.handle(.command(AppModel.jumpChords[0])) else {
             Issue.record("expected attach")
             return
         }
@@ -553,7 +554,7 @@ private func temporaryStore() -> FragmentStore {
         let session = Session(id: "ENG-42")
         try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: session))
         model.showList()
-        #expect(model.handle(.char("t", [])) == .handled)
+        #expect(model.handle(.command(AppModel.titleChord)) == .handled)
         #expect(model.isTitling)
         #expect(model.titleDraft == "")
         #expect(model.handle(.char("x", [])) == .ignored)  // typing goes to the field, not to trash
@@ -577,18 +578,108 @@ private func temporaryStore() -> FragmentStore {
         let model = makeFullModel()
         try model.store.save(Fragment(id: "20260101-000001-0000", text: "bug", title: "Old"))
         model.showList()
-        _ = model.handle(.char("t", []))
+        _ = model.handle(.command(AppModel.titleChord))
         #expect(model.titleDraft == "Old")
         model.titleDraft = "New"
         #expect(model.handle(.escape) == .handled)
         #expect(model.mode == .list)
         #expect(try model.store.all().first?.title == "Old")
-        _ = model.handle(.char("t", []))
+        _ = model.handle(.command(AppModel.titleChord))
         #expect(model.handle(.enter([])) == .handled)
-        _ = model.handle(.char("t", []))
+        _ = model.handle(.command(AppModel.titleChord))
         model.titleDraft = " "
         #expect(model.handle(.enter([])) == .handled)
         #expect(try model.store.all().first?.title == nil)
+    }
+
+    /// Typing narrows the list to fragments whose title or text has it. ↑↓, ↩ and ⌘1–9 work on what's shown; esc, or
+    /// the list opening again, goes back to every fragment with the highlighted one still selected.
+    @Test func typingFiltersTheListByTitleAndText() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "buy stamps"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "why does it flicker?", title: "List bug"))
+        try model.store.save(Fragment(id: "20260101-000003-0000", text: "the list of venues"))
+        model.showList()  // newest first: venues, List bug, stamps
+        #expect(model.handle(.char("l", [])) == .ignored)  // the field gets it
+        model.setListFilter("LIST")
+        #expect(model.shown.map(\.id) == ["20260101-000003-0000", "20260101-000002-0000"])
+        #expect(model.handle(.down) == .handled)
+        #expect(model.handle(.down) == .handled)
+        #expect(model.selection == 1)
+        #expect(model.handle(.escape) == .handled)  // clears the filter; a second esc closes
+        #expect(model.listFilter.isEmpty)
+        #expect(model.fragments[model.selection].title == "List bug")
+        #expect(model.handle(.escape) == .close)
+
+        model.showList()
+        model.setListFilter("nothing like it")
+        #expect(model.shown.isEmpty)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .list)
+        model.setListFilter("stamps")
+        #expect(model.handle(.command(AppModel.jumpChords[1])) == .handled)  // only one match
+        #expect(model.mode == .list)
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.mode == .detail("20260101-000001-0000"))
+        #expect(model.handle(.escape) == .handled)
+        #expect(model.listFilter.isEmpty)
+        #expect(model.selection == 2)
+
+        model.setListFilter("venues")
+        model.showList()  // the panel closed mid-filter and opened again
+        #expect(model.listFilter.isEmpty)
+        #expect(model.selection == 0)
+    }
+
+    /// ⌘D trashes the selected fragment. A launched one's action hears about it so it can stop the session; a note, or a
+    /// launch whose action is gone, just goes.
+    @Test func commandDTrashesAndTellsTheLaunchActionToEnd() throws {
+        let model = makeFullModel()
+        let session = Session(id: "ENG-42")
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "note"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "orphan", action: "gone", session: session))
+        try model.store.save(Fragment(id: "20260101-000003-0000", text: "bug", action: "ticket", session: session))
+        model.showList()  // newest first: bug, orphan, note
+        guard case .end(let run) = model.handle(.command(AppModel.trashChord)) else {
+            Issue.record("expected end")
+            return
+        }
+        #expect(run.verb == .end)
+        #expect(run.name == "Ticket")
+        #expect(run.program == URL(filePath: "/cache/yours/ticket/action"))
+        #expect(run.input.fragment.session == session)
+        #expect(!run.returnsSession)
+        #expect(model.mode == .list)
+        #expect(model.fragments.map(\.text) == ["orphan", "note"])
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+        #expect(try model.store.all().isEmpty)
+    }
+
+    /// A file that couldn't be moved to the Trash stays in the list, and its session keeps running.
+    @Test func aFragmentThatWontTrashKeepsItsSession() throws {
+        let model = makeFullModel()
+        try model.store.save(
+            Fragment(id: "20260101-000001-0000", text: "bug", action: "ticket", session: Session(id: "ENG-42")))
+        model.showList()
+        try FileManager.default.removeItem(at: model.store.directory)  // gone from under the list
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+    }
+
+    /// ⌘T titles the highlighted fragment of a filtered list; ⌘D with nothing matching trashes nothing.
+    @Test func titleAndTrashActOnTheFilteredList() throws {
+        let model = makeModel()
+        try model.store.save(Fragment(id: "20260101-000001-0000", text: "buy stamps"))
+        try model.store.save(Fragment(id: "20260101-000002-0000", text: "the list of venues"))
+        model.showList()
+        model.setListFilter("stamps")
+        _ = model.handle(.command(AppModel.titleChord))
+        model.titleDraft = "Errand"
+        #expect(model.handle(.enter([])) == .handled)
+        #expect(model.fragments.first { $0.id == "20260101-000001-0000" }?.title == "Errand")
+        model.setListFilter("nothing like it")
+        #expect(model.handle(.command(AppModel.trashChord)) == .handled)
+        #expect(model.fragments.count == 2)
     }
 
     /// Its folder deleted, a launch still opens: as a note, with the session kept in the file.
@@ -721,7 +812,7 @@ private func temporaryStore() -> FragmentStore {
     @Test func newFromListStartsCapture() {
         let model = makeModel()
         model.showList()
-        #expect(model.handle(.char("n", [])) == .startDictation)
+        #expect(model.handle(.command(AppModel.newChord)) == .startDictation)
         #expect(model.mode == .capture)
     }
 }
