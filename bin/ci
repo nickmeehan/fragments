@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The single definition of done. Every step prints ✅/❌; the first ❌ fails the run.
 #   bin/ci        format, lint, core tests, app build
-#   bin/ci --ui   also runs the XCUITest smoke flow (launches the app; needs a logged-in desktop)
+#   bin/ci --ui   app build and the XCUITest smoke flow alone: CI's ui job, which runs beside bin/ci (launches the
+#                 app; needs a logged-in desktop)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p tmp
@@ -20,9 +21,11 @@ xcb=(xcodebuild -project Fragments.xcodeproj -scheme Fragments -configuration De
      -derivedDataPath build/DerivedData -destination platform=macOS,arch=arm64 -quiet)
 
 step "xcodegen"     bin/setup
-step "format"       xcrun swift-format format --in-place --recursive "${swift_sources[@]}"
-step "lint"         xcrun swift-format lint --strict --recursive "${swift_sources[@]}"
-step "core tests"   swift test --package-path FragmentsCore
+if [ $ui = 0 ]; then
+  step "format"       xcrun swift-format format --in-place --recursive "${swift_sources[@]}"
+  step "lint"         xcrun swift-format lint --strict --recursive "${swift_sources[@]}"
+  step "core tests"   swift test --package-path FragmentsCore
+fi
 step "app build"    "${xcb[@]}" build
 [ $ui = 1 ] && step "ui tests" "${xcb[@]}" test -only-testing:FragmentsUITests
 rm -f tmp/ci_step.log

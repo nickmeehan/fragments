@@ -33,27 +33,30 @@ enforced by tooling (hooks, bin/ci); this file holds only what a machine can't c
 
 ## Commands
 
-- `bin/ci` — format, lint, core tests, app build; `bin/ci --ui` adds the UI tests
+- `bin/ci` — format, lint, core tests, app build; `bin/ci --ui` — the app build and UI tests alone (CI only, see
+  below)
 - `bin/run [--capture|--list]` — build and relaunch the app
 - `swift test --package-path FragmentsCore` — fast loop for Core
 - `open 'fragments://new?text=hi'` / `open fragments://list` — drive a running app from a shell
 - `bin/renders [--against REF]` — every panel screen drawn by the app itself from `fixtures/` (capture, ⌘K, the list,
   its title field and a filtered list, ⌘, Actions and each action's view, detail, the update view) into `tmp/renders/head/`; with `--against`, REF's
   into `base/` and the screens that differ in `summary.md`. Unchanged screens come out identical. Uses the app's
-  `--snapshot DIR` mode.
+  `--snapshot DIR` mode. CI only, see below.
 - `bin/check-rex` — the real Rex and Claude Code, driven like ⌘⇧↩, ↩ and ⌘D with a harmless prompt (Nick's Mac only)
 
 ## Verifying a change
 
-Run each layer your change can break, cheapest first, and say in the PR what you ran and saw.
+Check each layer your change can break, cheapest first, and say in the PR what you ran and saw.
 
-- `bin/ci`: logic, every keystroke in `AppModel`, each bundled action against a stand-in. Every change.
-- `bin/ci --ui`: the real app with real key presses (capture, list, hotkey, ⌘K, ⌘,, launch → attach, Rex against a
-  stand-in). Any change to `Fragments/`, a view or an action.
-- `bin/renders --against origin/main`: open every changed PNG. A change someone can see goes in front of Nick as
-  these renders, never as a mock-up; a screen that changed and shouldn't have is a regression.
-- CI runs all three on every PR (the `ui` job) and comments the changed screens. Without a Mac (a cloud session):
-  push, `gh pr checks --watch`, then `gh run download <run id> -n renders -D tmp/renders` and look.
+- `bin/ci`: logic, every keystroke in `AppModel`, each bundled action against a stand-in. Every change, locally.
+- The UI layers run in CI on every PR, never locally: on a Mac they take over its keyboard and screen. Push, open the
+  PR, then `gh pr checks --watch`.
+  - `bin/ci --ui`, the `ui` job: the real app with real key presses (capture, list, hotkey, ⌘K, ⌘,, launch → attach, Rex against
+    a stand-in). Any change to `Fragments/`, a view or an action. When it fails: `gh run view <run id> --log-failed`,
+    and `gh run download <run id> -n ui-test-results` for the result bundle.
+  - `bin/renders --against <base>`, the `renders` job: its PR comment names the screens that changed. Run
+    `gh run download <run id> -n renders -D tmp/renders` and open every changed PNG. A change someone can see goes in
+    front of Nick as these renders, never as a mock-up; a screen that changed and shouldn't have is a regression.
 - Rex, Claude Code, Cowork and Wispr Flow exist only on Nick's Mac. A change to how Rex is driven: `bin/check-rex`
   there, or ask Nick to run it.
 
@@ -70,5 +73,5 @@ Run each layer your change can break, cheapest first, and say in the PR what you
   `chore:`), imperative mood, one logical change each.
 - Never weaken a gate to get green: no disabled tests, no `swift-format-ignore`, no skipped steps.
   Genuinely blocked? Stop and surface it with your analysis instead of routing around.
-- Anything that needs the user's hands (the UI-test automation grant, Xcode sign-in, an OS upgrade for Rex)
+- Anything that needs the user's hands (Xcode sign-in, an OS upgrade for Rex)
   goes in your final message, with what to verify once it's done.
